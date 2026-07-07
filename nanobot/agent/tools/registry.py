@@ -1,0 +1,170 @@
+"""Tool registry for dynamic tool management."""
+
+import time
+from typing import Any
+
+from nanobot.agent.tools.base import Tool
+
+
+class ToolRegistry:
+    """
+    Registry for agent tools.
+
+    Allows dynamic registration and execution of tools.
+    """
+
+    def __init__(self):
+        self._tools: dict[str, Tool] = {}
+        self._cached_definitions: list[dict[str, Any]] | None = None
+
+    def register(self, tool: Tool) -> None:
+        """Register a tool."""
+        self._tools[tool.name] = tool
+        self._cached_definitions = None
+
+    def unregister(self, name: str) -> None:
+        """Unregister a tool by name."""
+        self._tools.pop(name, None)
+        self._cached_definitions = None
+
+    def unregister_prefix(self, prefix: str) -> int:
+        """按名称前缀批量移除工具（用于单独重连某个 MCP 服务）。"""
+        if not prefix:
+            return 0
+        removed = [n for n in self._tools if n.startswith(prefix)]
+        for name in removed:
+            self._tools.pop(name, None)
+        if removed:
+            self._cached_definitions = None
+        return len(removed)
+
+    def get(self, name: str) -> Tool | None:
+        """Get a tool by name."""
+        return self._tools.get(name)
+
+    def has(self, name: str) -> bool:
+        """Check if a tool is registered."""
+        return name in self._tools
+
+    @staticmethod
+    def _schema_name(schema: dict[str, Any]) -> str:
+        """Extract a normalized tool name from either OpenAI or flat schemas."""
+        fn = schema.get("function")
+        if isinstance(fn, dict):
+            name = fn.get("name")
+            if isinstance(name, str):
+                return name
+        name = schema.get("name")
+        return name if isinstance(name, str) else ""
+
+    def get_definitions(self) -> list[dict[str, Any]]:
+        """Get tool definitions with stable ordering for cache-friendly prompts.
+
+        Built-in tools are sorted first as a stable prefix, then MCP tools are
+        sorted and appended.  The result is cached until the next
+        register/unregister call.
+        """
+        if self._cached_definitions is not None:
+            return self._cached_definitions
+
+        definitions = [tool.to_schema() for tool in self._tools.values()]
+        builtins: list[dict[str, Any]] = []
+        mcp_tools: list[dict[str, Any]] = []
+        for schema in definitions:
+            name = self._schema_name(schema)
+            if name.startswith("mcp_"):
+                mcp_tools.append(schema)
+            else:
+                builtins.append(schema)
+
+        builtins.sort(key=self._schema_name)
+        mcp_tools.sort(key=self._schema_name)
+        self._cached_definitions = builtins + mcp_tools
+        return self._cached_definitions
+
+    def prepare_call(
+        self,
+        name: str,
+        params: dict[str, Any],
+    ) -> tuple[Tool | None, dict[str, Any], str | None]:
+        """Resolve, cast, and validate one tool call."""
+        # Guard against invalid parameter types (e.g., list instead of dict)
+        if not isinstance(params, dict) and name in ('write_file', 'read_file'):
+            return None, params, (
+                f"Error: Tool '{name}' parameters must be a JSON object, got {type(params).__name__}. "
+                "Use named parameters: tool_name(param1=\"value1\", param2=\"value2\")"
+            )
+
+        tool = self._tools.get(name)
+        if not tool:
+            return None, params, (
+                f"Error: Tool '{name}' not found. Available: {', '.join(self.tool_names)}"
+            )
+
+        # 自动修正 LLM 传错的参数名：常见情况是 LLM 用 'arguments' 作为键名
+        # 但工具期望自己的第一个参数（如 'code', 'query' 等）
+        if isinstance(params, dict) and "arguments" in params:
+            param_names = list(tool.parameters.get("properties", {}).keys())
+            if param_names and param_names[0] not in params:
+                params = dict(params)
+                params[param_names[0]] = params.pop("arguments")
+
+        cast_params = tool.cast_params(params)
+        errors = tool.validate_params(cast_params)
+        if errors:
+            return tool, cast_params, (
+                f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)
+            )
+        return tool, cast_params, None
+
+    async def execute(self, name: str, params: dict[str, Any]) -> Any:
+        """Execute a tool by name with given parameters."""
+        _HINT = "\n\n[Analyze the error above and try a different approach.]"
+        tool, params, error = self.prepare_call(name, params)
+        if error:
+            try:
+                from core.security.audit import audit_tool_call
+                audit_tool_call(name, params, status="error", error=error[:500])
+            except Exception:
+                pass
+            return error + _HINT
+
+        t0 = time.perf_counter()
+        try:
+            assert tool is not None  # guarded by prepare_call()
+            result = await tool.execute(**params)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            preview = str(result)[:300] if result is not None else ""
+            status = "error" if isinstance(result, str) and result.startswith("Error") else "ok"
+            try:
+                from core.security.audit import audit_tool_call
+                audit_tool_call(
+                    name, params, status=status, duration_ms=duration_ms,
+                    result_preview=preview,
+                    error=preview if status == "error" else "",
+                )
+            except Exception:
+                pass
+            if status == "error":
+                return str(result) + _HINT
+            return result
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            err = f"Error executing {name}: {str(e)}"
+            try:
+                from core.security.audit import audit_tool_call
+                audit_tool_call(name, params, status="error", duration_ms=duration_ms, error=err)
+            except Exception:
+                pass
+            return err + _HINT
+
+    @property
+    def tool_names(self) -> list[str]:
+        """Get list of registered tool names."""
+        return list(self._tools.keys())
+
+    def __len__(self) -> int:
+        return len(self._tools)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._tools
