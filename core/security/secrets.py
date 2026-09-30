@@ -12,10 +12,53 @@ from loguru import logger
 
 _ENV_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
+# ── 环境变量命名兼容 ──
+# 产品由「科吉 / Keji」更名为「幻帧 / Huanzhen」，但大量既有部署的 .env 里
+# 仍然是 KEJI_* 变量名。这里统一按「新名字优先、旧名字兜底」读取，
+# 使得 README 里写的 HUANZHEN_* 与历史 KEJI_* 都能生效。
+ENV_ALIASES: dict[str, tuple[str, ...]] = {
+    "ADMIN_PASSWORD": ("HUANZHEN_ADMIN_PASSWORD", "KEJI_ADMIN_PASSWORD"),
+    "JWT_SECRET": ("HUANZHEN_JWT_SECRET", "KEJI_JWT_SECRET"),
+    "API_KEY": ("HUANZHEN_API_KEY", "KEJI_API_KEY"),
+}
+
+
+def env_first(*names: str) -> str:
+    """按顺序返回第一个非空环境变量值（全部为空则返回 ""）。"""
+    for name in names:
+        value = os.environ.get(name, "")
+        if value and value.strip():
+            return value.strip()
+    return ""
+
+
+def env_alias(kind: str) -> str:
+    """按逻辑名读取环境变量，自动兼容新旧命名。"""
+    return env_first(*ENV_ALIASES.get(kind, (kind,)))
+
 # 日志中脱敏的键名（小写匹配）
 _SECRET_KEYS = frozenset({
     "api_key", "app_secret", "secret", "password", "token",
     "verification_token", "encrypt_key", "work_secret",
+})
+
+
+# 可选环境变量：未设置时不该刷警告。
+# README 的常见问题里就有「启动后一堆『环境变量未设置』警告」这一条 ——
+# 大量是可选项（飞书 / OpenAI / 图搜索等），用 WARNING 级别喊出来只会淹没真正的问题。
+_OPTIONAL_ENV_VARS = frozenset({
+    "OPENAI_API_KEY",
+    "TAVILY_API_KEY",
+    "PICOVOICE_ACCESS_KEY",
+    "FEISHU_APP_ID",
+    "FEISHU_APP_SECRET",
+    "GROQ_API_KEY",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "OPENWEATHER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "DINGTALK_APP_KEY",
+    "DINGTALK_APP_SECRET",
 })
 
 
@@ -29,7 +72,16 @@ def resolve_env_ref(value: str) -> str:
     var = m.group(1)
     resolved = os.environ.get(var, "")
     if not resolved:
-        logger.warning("环境变量 {} 未设置（配置项引用了 ${{{}}}）", var, var)
+        # 先按别名再试一次（HUANZHEN_* / KEJI_* 互相兼容）
+        for names in ENV_ALIASES.values():
+            if var in names:
+                resolved = env_first(*names)
+                break
+    if not resolved:
+        if var in _OPTIONAL_ENV_VARS:
+            logger.debug("可选环境变量 {} 未设置（配置项引用了 ${{{}}}）", var, var)
+        else:
+            logger.warning("环境变量 {} 未设置（配置项引用了 ${{{}}}）", var, var)
     return resolved
 
 

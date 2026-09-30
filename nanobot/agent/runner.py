@@ -454,6 +454,21 @@ class AgentRunner:
 
             await hook.before_finalize(context)
 
+            # 钩子可以要求"本次回答不算数、继续迭代"（例如强制验证未完成）。
+            # 用显式标志而不是靠 final_content=None 表达，避免与默认值混淆。
+            if getattr(context, "block_finalize", False):
+                context.block_finalize = False
+                logger.info(
+                    "Finalization blocked by hook on turn {} for {}",
+                    iteration,
+                    spec.session_key or "default",
+                )
+                if hook.wants_streaming():
+                    # resuming=True：流没有真正结束，避免渠道侧提前收卡片
+                    await hook.on_stream_end(context, resuming=True)
+                await hook.after_iteration(context)
+                continue
+
             clean = hook.finalize_content(context, response.content)
             if response.finish_reason != "error" and is_blank_text(clean):
                 empty_content_retries += 1

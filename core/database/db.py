@@ -6,6 +6,8 @@ import time
 import uuid
 from typing import Optional
 
+from loguru import logger
+
 
 # ── 模型计价表（美元 / 1M tokens） ──
 MODEL_PRICING = {
@@ -37,15 +39,44 @@ _db_instance = None
 _db_lock = threading.Lock()
 
 
+_LEGACY_DB_REL = os.path.join("data", "keji.db")
+
+
+def _resolve_db_path() -> str:
+    """决定 SQLite 主库路径。
+
+    - 默认仍是历史路径 data/keji.db（保证既有部署不丢数据）。
+    - 若 config.yaml 的 database.path 指向一个**已存在**的文件，则采用它，
+      这样用户可以主动把库迁移到新位置（例如 data/huanzhen.db）而不需要改代码。
+      只认已存在的文件，避免"配置写错 -> 悄悄新建一个空库 -> 历史对话看不见"。
+    """
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    legacy = os.path.join(root, _LEGACY_DB_REL)
+    try:
+        from core.security.secrets import load_app_config
+
+        configured = str((load_app_config().get("database") or {}).get("path") or "").strip()
+        if configured:
+            path = configured if os.path.isabs(configured) else os.path.join(root, configured)
+            path = os.path.abspath(path)
+            if path != legacy:
+                if os.path.isfile(path):
+                    logger.info("使用配置指定的数据库: {}", path)
+                    return path
+                logger.debug(
+                    "database.path 指向 {} 但文件不存在，继续使用 {}", path, legacy
+                )
+    except Exception:
+        pass
+    return legacy
+
+
 def get_db() -> "Database":
     global _db_instance
     if _db_instance is None:
         with _db_lock:
             if _db_instance is None:
-                db_path = os.path.join(
-                    os.path.dirname(__file__), "..", "..", "data", "keji.db"
-                )
-                _db_instance = Database(db_path)
+                _db_instance = Database(_resolve_db_path())
     return _db_instance
 
 

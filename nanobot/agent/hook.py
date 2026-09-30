@@ -25,6 +25,11 @@ class AgentHookContext:
     final_content: str | None = None
     stop_reason: str | None = None
     error: str | None = None
+    # 由 before_finalize 钩子置位：表示"这次回答不算数，请继续迭代"。
+    # runner 会带着注入的消息回到循环里，而不是就此收尾。
+    # （此前钩子只能改 final_content，而 runner 从不读取它做控制流，
+    #   导致"强制验证"这类拦截实际上无效 —— 模型直接给答案就绕过了。）
+    block_finalize: bool = False
 
 
 class AgentHook:

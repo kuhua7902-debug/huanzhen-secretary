@@ -243,7 +243,12 @@ def db_execute_query(connection_id: str = "", sql: str = "", limit: int = 100) -
         conn = _create_connection(info)
         cursor = conn.cursor()
         try:
-            if limit > 0 and "LIMIT" not in sql.upper():
+            # 只给"读类"语句补 LIMIT。此前对所有不含 LIMIT 的 SQL 一律追加，
+            # 于是 INSERT/UPDATE/DELETE/DDL 会被拼成 "... LIMIT 100"，
+            # 必然语法错误、写操作永远失败。
+            _head = sql.lstrip().split(None, 1)[0].upper() if sql.strip() else ""
+            _readonly_stmt = _head in ("SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN")
+            if limit > 0 and _readonly_stmt and "LIMIT" not in sql.upper():
                 sql = sql.rstrip(";") + f" LIMIT {limit}"
             cursor.execute(sql)
 

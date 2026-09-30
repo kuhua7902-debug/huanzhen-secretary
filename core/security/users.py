@@ -14,7 +14,7 @@ import bcrypt
 import jwt
 from loguru import logger
 
-from core.security.secrets import load_app_config, resolve_env_ref
+from core.security.secrets import env_alias, load_app_config, resolve_env_ref
 
 ROLES = frozenset({"admin", "member", "readonly"})
 
@@ -55,7 +55,7 @@ def _read_or_create_jwt_secret() -> str:
 def _jwt_settings() -> tuple[str, int]:
     cfg = load_app_config()
     sec = cfg.get("security") or {}
-    raw = sec.get("jwt_secret") or os.environ.get("KEJI_JWT_SECRET") or ""
+    raw = sec.get("jwt_secret") or env_alias("JWT_SECRET") or ""
     if isinstance(raw, str) and raw.startswith("${"):
         raw = resolve_env_ref(raw)
     secret = (raw or "").strip() or _read_or_create_jwt_secret()
@@ -126,7 +126,9 @@ def bootstrap_admin_if_needed() -> None:
     sec = cfg.get("security") or {}
     boot = sec.get("bootstrap_admin") or {}
     username = (boot.get("username") or "admin").strip()
-    raw_pw = boot.get("password") or os.environ.get("KEJI_ADMIN_PASSWORD") or ""
+    # 兼容两种命名：README 里写的是 HUANZHEN_ADMIN_PASSWORD，
+    # 历史部署用的是 KEJI_ADMIN_PASSWORD，config.yaml 里的 ${...} 引用可能解析为空。
+    raw_pw = boot.get("password") or env_alias("ADMIN_PASSWORD") or ""
     if isinstance(raw_pw, str) and raw_pw.startswith("${"):
         raw_pw = resolve_env_ref(raw_pw)
     password = (raw_pw or "").strip()

@@ -398,6 +398,9 @@ class ComplianceHook(AgentHook):
     REPORT_TOOLS = frozenset({"create_document", "create_table", "create_presentation"})
     # A3: 每 N 轮复杂工具触发一次复检（值越小复检越频繁）
     RECHECK_INTERVAL = 3
+    # 最多拦截几次"想直接回答"的行为。设上限是为了避免模型死活不调 verify_output
+    # 时把迭代次数耗到 max_iterations（那样用户会拿不到任何回答）。
+    MAX_FINALIZE_BLOCKS = 2
 
     # 验证工具名（允许通过的验证相关工具）
     VERIFY_TOOLS = frozenset({"verify_output", "selfcheck_run", "__tool__"})
@@ -410,6 +413,7 @@ class ComplianceHook(AgentHook):
         self._selfcheck_round_count = 0  # A3: 自检后复杂工具调用计数
         self._verification_reminded = False
         self._verification_pending = False  # 强制验证：等待验证通过
+        self._finalize_blocks = 0  # 已经拦截过几次"直接回答"
         self._sse = sse_hook  # A2: SSE 事件发射器
 
     @staticmethod
@@ -458,31 +462,44 @@ class ComplianceHook(AgentHook):
         self._selfcheck_round_count += 1
         return self._selfcheck_round_count >= self.RECHECK_INTERVAL
 
-    async def after_iteration(self, ctx: AgentHookContext) -> None:
-        """A3: 检测工具执行错误，提前触发复检。"""
-        if not ctx.tool_results:
-            return
-        for r in ctx.tool_results:
-            s = str(r or "")[:20]
-            if any(kw in s for kw in ("错误", "Error", "失败", "timeout", "拒绝")):
-                # 工具出错了 → 下次 before_execute_tools 会触发复检
-                self._selfcheck_round_count = self.RECHECK_INTERVAL
-                break
-
     async def before_finalize(self, ctx: AgentHookContext) -> None:
-        """拦截模型直接输出答案：如果验证待定，重定向到工具执行。"""
-        if self._verification_pending:
-            # 注入一个 verify_output 调用到 tool_calls，迫使模型执行验证
-            inject_msg = ("【强制验证】你当前有未完成的 verify_output 验证。\n"
-                          "请先调用 verify_output 验证输出文件再回答。")
-            self._inject(ctx.messages, "FORCED VERIFICATION", inject_msg)
-            # 清空原始内容，让模型继续迭代
-            ctx.final_content = None
-            ctx.stop_reason = None
-            ctx.streamed_content = False
+        """拦截模型直接输出答案：如果验证待定，重定向到工具执行。
+
+        修复（2026-05）：原来只把 ctx.final_content 置 None 就想让模型继续迭代，
+        但 runner 从不读取 final_content 做控制流，所以这个拦截**完全无效** ——
+        模型只要直接给答案就绕过了强制验证。现在改为置 ctx.block_finalize，
+        runner 会真正带着注入的提示回到循环；并加了次数上限避免死循环。
+        """
+        if not self._verification_pending:
+            return
+        if self._finalize_blocks >= self.MAX_FINALIZE_BLOCKS:
+            # 给过机会仍未验证：放行，让用户至少能拿到回答，并在思考流里说明
             if self._sse:
-                self._sse.emit("selfcheck_result", passed=False,
-                               summary="强制验证: 必须先验证才能输出答案")
+                self._sse.emit(
+                    "selfcheck_result",
+                    passed=False,
+                    summary="强制验证: 已多次提醒仍未调用 verify_output，本次放行",
+                )
+            self._verification_pending = False
+            return
+
+        self._finalize_blocks += 1
+        inject_msg = (
+            "【强制验证】你当前有未完成的 verify_output 验证，不能直接给出最终答案。\n"
+            "请先调用 verify_output 验证你刚生成的数据交付物（文件是否存在、行数、"
+            "关键字段空值、合计一致性），返回 PASS 后才能回答用户。"
+        )
+        self._inject(ctx.messages, "FORCED VERIFICATION", inject_msg)
+        ctx.final_content = None
+        ctx.stop_reason = None
+        ctx.streamed_content = False
+        ctx.block_finalize = True  # runner 会据此继续迭代
+        if self._sse:
+            self._sse.emit(
+                "selfcheck_result",
+                passed=False,
+                summary="强制验证: 必须先调用 verify_output 才能输出答案",
+            )
 
     async def after_iteration(self, ctx: AgentHookContext) -> None:
         """A3: 检测工具执行错误，提前触发复检。"""
@@ -509,11 +526,14 @@ class ComplianceHook(AgentHook):
                 rs = str(r or "")[:10]
                 if rs.startswith("PASS"):
                     self._verification_pending = False
+                    self._finalize_blocks = 0  # 验证通过，重置拦截计数
                     if self._sse:
                         self._sse.emit("selfcheck_result", passed=True,
                                        summary="验证通过")
                 elif rs.startswith("FAIL"):
-                    # 验证失败，保持 pending，下一轮继续要求验证
+                    # 验证失败：保持 pending；同时重置拦截计数，
+                    # 让"修复后重新验证"这条路还能被正常引导
+                    self._finalize_blocks = 0
                     if self._sse:
                         self._sse.emit("selfcheck_result", passed=False,
                                        summary="验证失败，请修复后重试")

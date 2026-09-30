@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.security.secrets import load_app_config, resolve_env_ref
+from core.security.secrets import env_alias, load_app_config, resolve_env_ref
 from core.security.context import clear_request_context, set_request_context
 from core.security.users import CurrentUser, decode_access_token
 
@@ -68,6 +68,10 @@ def get_security_settings(reload: bool = False) -> SecuritySettings:
         api_key = resolve_env_ref(raw_key) if raw_key.startswith("${") else raw_key
     else:
         api_key = ""
+
+    # 兼容 HUANZHEN_API_KEY（新）与 KEJI_API_KEY（旧）
+    if not api_key:
+        api_key = env_alias("API_KEY")
 
     if not api_key and enabled:
         api_key = _read_or_create_api_key()
