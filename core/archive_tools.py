@@ -343,10 +343,11 @@ def _extract_rar(path: str, output_dir: str) -> str:
             "type": "string",
             "description": "压缩格式：zip（默认）、tar.gz、tar.bz2、7z",
         },
-        "password": {
-            "type": "string",
-            "description": "加密密码（仅 ZIP/7z 支持加密），可选",
-        },
+        # 修复：这里原先还声明了 password（加密密码），但 create_archive 的签名
+        # 和 _create_zip/_create_tar/_create_7z 都没有实现加密 —— 传了只会
+        # TypeError: unexpected keyword argument 'password'。
+        # 已在 schema 中移除，避免模型按 schema 传参必然失败。
+        # （解压侧的 password 是真实实现的，保留在 extract_archive 上。）
     },
     category="filesystem",
     timeout=120,

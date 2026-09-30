@@ -248,7 +248,13 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
     # ── 文件整理 ──
     ("organize_files", "按类型自动分类整理文件", {"source_dir": {"type": "string"}, "mode": {"type": "string"}}, []),
     ("rename_files", "批量重命名文件。模式: prefix(加前缀)/suffix(加后缀)/replace(替换)/number(编号)", {"directory": {"type": "string"}, "pattern": {"type": "string", "description": "模式: prefix/suffix/replace/regex/number"}, "value": {"type": "string", "description": "模式参数"}}, ["directory"]),
-    ("deduplicate_files", "文件去重", {"directory": {"type": "string"}}, ["directory"]),
+    ("deduplicate_files", "文件去重（基于 MD5）。action=delete 时必须传 confirm=true 才会真正删除",
+     {"directory": {"type": "string", "description": "要扫描的文件夹路径"},
+      "action": {"type": "string", "description": "scan(只扫描，默认) / delete(删除重复，保留一个) / move_to(移动到 move_dir)"},
+      "move_dir": {"type": "string", "description": "move_to 模式的目标目录"},
+      "fuzzy_name": {"type": "boolean", "description": "是否启用文件名模糊匹配，默认 true"},
+      "confirm": {"type": "boolean", "description": "action=delete 时必须传 true 才真正删除；否则只返回待删除清单"}},
+     ["directory"]),
 
     # ── 输出验证工具 ──
     ("verify_output", "验证输出文件数据的完整性：检查行数、空值、列名、合计一致性。支持指定 Sheet 和数值合计校验",

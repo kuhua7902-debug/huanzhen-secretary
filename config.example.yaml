@@ -72,6 +72,10 @@ agent:
   context_compact_summary_max_messages: 40
 
 tools:
+  # ⚠️ 这份清单**只对旧引擎（CoreAgent：语音 / 微信 / CLI）生效**。
+  #    Web 界面走 nanobot 引擎，会注册 nanobot/adapter_tools.py 里 TOOL_DEFS 的
+  #    全部工具，不读取本清单。改这里不会影响网页对话里 AI 能用的工具。
+  #    （已知的不一致，见 CHANGELOG；彻底收敛需要把 enabled 过滤接进 nanobot 路径。）
   enabled:
     - run_code
     - get_time
@@ -120,7 +124,10 @@ knowledge:
   embedding_model: nomic-embed-text
 
 database:
-  path: data/huanzhen.db
+  # SQLite 主库路径（相对项目根或绝对路径）。
+  # ⚠️ 只有该文件**已存在**时才会被采用；否则继续使用历史默认路径
+  #    data/keji.db —— 避免配置写错时悄悄新建一个空库、导致历史对话看不见。
+  path: data/keji.db
 
 session:
   ttl: 3600

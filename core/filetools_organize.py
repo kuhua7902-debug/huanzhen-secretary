@@ -323,12 +323,17 @@ def rename_files(directory: str = "", pattern: str = "prefix", value: str = "",
             "type": "boolean",
             "description": "是否启用文件名模糊匹配（如 报告(1).docx 和 报告.docx），默认 true",
         },
+        "confirm": {
+            "type": "boolean",
+            "description": "action=delete 时必须传 true 才会真正删除；不传则只返回将要删除的清单供确认",
+        },
     },
     category="filesystem",
     timeout=120,
 )
 def deduplicate_files(directory: str = "", action: str = "scan",
-                      move_dir: str = "", fuzzy_name: bool = True) -> str:
+                      move_dir: str = "", fuzzy_name: bool = True,
+                      confirm: bool = False) -> str:
     from core.path_policy import check_path, default_browse_path
     if not directory:
         directory = default_browse_path()
@@ -429,6 +434,20 @@ def deduplicate_files(directory: str = "", action: str = "scan",
                 lines.append(f"    {f['name']} ({_format_size(f['size'])})")
 
     # 执行操作
+    # 安全门：delete 会真正删掉文件、不可撤销，必须显式确认。
+    # 与 delete_file / delete_workflow 的 confirm 约定保持一致。
+    # 此前 action="delete" 会直接 os.remove，没有任何二次确认。
+    if action == "delete" and exact_dupes and not confirm:
+        total_saved = sum(f["size"] for files in exact_dupes.values() for f in files[1:])
+        return (
+            f"⚠️ 预删除确认（未执行删除）\n"
+            f"目录: {directory}\n"
+            f"发现 {len(exact_dupes)} 组完全重复，将删除 {sum(len(v) - 1 for v in exact_dupes.values())} 个文件，"
+            f"可释放约 {_format_size(total_saved)}\n"
+            f"（每组保留第一个文件）\n\n"
+            f"确认无误后重新调用并传 confirm=true 以真正执行删除。"
+        )
+
     if action == "delete" and exact_dupes:
         deleted = 0
         saved = 0

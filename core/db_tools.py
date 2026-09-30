@@ -1,12 +1,16 @@
-"""数据库连接与管理工具 — 支持 SQLite / MySQL / PostgreSQL
+"""数据库连接与管理工具 — 支持 MySQL / PostgreSQL
 
 提供两个入口：
 1. @register_tool 装饰器注册，可通过 CLI 子进程或 nanobot 适配器调用
 2. 直接 import 函数给 SmartQueryService 使用
 
-连接管理策略：
-- nanobot 适配器：内存持久化（推荐）
-- CLI 子进程：JSON 文件持久化到 data/db_connections/
+连接管理策略（实际实现）：
+- 连接参数序列化到 data/db_connections/<connection_id>.json，按 connection_id 复用；
+- 每次执行 SQL 时按需新建连接、用完即关（没有常驻连接池）。
+  因此 connection_id 本质是「一份保存下来的连接配置」，不是活跃连接句柄。
+
+⚠️ 该 JSON 文件包含**明文密码**。生产环境请限制 data/ 目录权限，
+   或改用 core/database/db.py 里基于 Fernet 的加密存储方式。
 """
 
 import json
