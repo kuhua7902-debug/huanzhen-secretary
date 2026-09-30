@@ -13,6 +13,9 @@ node_modules/
 config.yaml
 .env
 .env.*
+# 但模板必须入库，否则新用户没有可复制的样板
+!.env.example
+!config.example.yaml
 data/security/
 # 含密钥的本地副本一律不入库（启动脚本请从 .env 读密钥）
 *.local.bat

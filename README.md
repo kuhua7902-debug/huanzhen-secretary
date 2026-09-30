@@ -4,6 +4,18 @@ Windows 上的**本地 / 局域网 AI 助手**：浏览器打开即可对话，�
 
 **Agent 引擎基于开源项目 [nanobot](https://github.com/HKUDS/nanobot)**（HKUDS，MIT 许可）。幻帧在其上增加了 Web 前端、多用户权限、团队文件工作区与企业部署能力。详见 [第三方声明与致谢](THIRD_PARTY_NOTICES.md)。
 
+---
+
+> ## ⚠️ 安全提示：如果你从公开仓库克隆，请先轮换密钥
+>
+> 本项目的历史提交中曾包含**明文 API Key**（`启动幻帧语音助手.bat` 曾硬编码 4 个真实密钥，
+> 且该文件被 git 跟踪）。该文件已改为从 `.env` 读取，但**删除文件不能收回已经流出的密钥**。
+>
+> 请到 DeepSeek / 智谱 / Groq / 阿里云百炼 后台**吊销并重新签发**，新密钥只写入 `.env`。
+> 详见 [SECURITY.md](SECURITY.md)。
+
+---
+
 ## 界面预览
 
 启动后浏览器访问 `http://127.0.0.1:8000/` 的效果如下：
@@ -85,10 +97,35 @@ HUANZHEN_ADMIN_PASSWORD=你想设置的管理员密码
 
 | 文件 | 用途 |
 |------|------|
-| `setup_deploy.bat` / `一键部署.bat` | 新机安装 Python 虚拟环境与依赖 |
-| `launch_huanzhen.bat` / `启动幻帧.bat` | 后台启动服务并打开网页 |
-| `run_server.bat` / `运行服务.bat` | 带黑窗启动（排错时用） |
+| `setup_deploy.bat` / `一键部署.bat` | 新机安装 Python 虚拟环境与依赖（调用 `scripts/deploy.ps1`） |
+| `launch_huanzhen.bat` / `启动幻帧.bat` | 后台启动服务并打开网页（无控制台窗口） |
+| `run_server.bat` / `运行服务.bat` | 带黑窗启动（排错时用，日志直接打印在窗口里） |
+| `启动幻帧语音助手.bat` | 启动语音助手（唤醒词 + 语音回复），密钥从 `.env` 读取 |
 | `package_wheels.bat` | 在本机重新打包离线 wheel（换 Python 版本时用） |
+| `build.bat` | PyInstaller 打包（产物在 `dist/`） |
+| `install_voice_service.ps1` | 注册语音助手开机自启 |
+
+---
+
+## 开发与测试
+
+```powershell
+# 安装开发依赖
+venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+# 运行测试
+venv\Scripts\python.exe -m pytest tests -q
+```
+
+测试套件覆盖权限模型（防止只读角色越权回退）、工具 schema 与函数签名一致性
+（防止再次出现「schema 参数名写错导致工具必然 TypeError」）、路径沙箱、
+会话隔离、文档解析与 `verify_output` 验证逻辑。
+
+**加新工具时请注意**：业务工具需要在两处登记 —— 源文件里的 `@register_tool` 装饰器
+（legacy/语音/CLI 路径使用）与 `nanobot/adapter_tools.py` 的 `TOOL_DEFS`
+（Web 路径使用）。`tests/test_tool_schema.py` 会校验二者与真实函数签名一致。
+只读账号的可用范围由 `core/security/permissions.py::READ_ONLY_TOOLS` 白名单决定，
+新增只读工具需显式加入白名单（**默认拒绝**是刻意的安全设计）。
 
 ---
 
@@ -153,10 +190,28 @@ A：检查 Windows 防火墙是否放行 **8000** 端口；用服务器内网 IP
 
 ## 更多文档
 
+- [架构说明（当前代码结构、两个引擎、安全模型）](docs/幻帧架构总结.md)
+- [安全策略与密钥轮换](SECURITY.md)
+- [改动记录](CHANGELOG.md)
 - [新机部署详细步骤](docs/新机部署.md)
 - [离线 / 内网部署](docs/离线部署.md)
 - [使用指南（功能与页面）](docs/使用指南.md)
 - [项目目录说明](docs/项目目录说明.md)
+- [发展路线](docs/发展路线.md)
+
+---
+
+## 已知限制
+
+以下能力**有意保留了边界**，部署前请知情（详见 [SECURITY.md](SECURITY.md)）：
+
+- `run_code` 的沙箱只拦截文件读写的一部分（仅替换了内建 `open()`），
+  等价于「以服务进程权限执行任意 Python」。生产环境请配合容器或低权限账号。
+- 语音 / 微信 / 企业微信入口没有登录用户，角色权限不生效，只受全局文件沙箱约束。
+- GUI 桌面自动化共享一个**进程级**急停标志，无法按会话隔离 ——
+  多人共用一台机器时建议不开放 GUI 工具。
+- `nanobot` 引擎自带的定时任务、心跳、长期记忆整理（Dream）等能力
+  **代码存在但未接入**当前产品链路，见架构说明。
 
 ---
 
