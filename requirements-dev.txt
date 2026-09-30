@@ -1,0 +1,4 @@
+# 开发/测试依赖（生产依赖见 requirements.txt）
+# 安装：venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+pytest>=8.0
+pytest-cov>=5.0

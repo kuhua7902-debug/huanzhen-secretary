@@ -309,6 +309,51 @@ def _parse_ppt(file_path: str) -> Optional[str]:
     return f"[提示: 旧版 .ppt 格式需要先转换为 .pptx 才能解析]"
 
 
+_SENT_BREAK = "。！？；：!?;:"
+# 句末标点后紧接的收尾符号，拼接时不应再补空格
+_CJK_TAIL = "。！？；：、，）】》”’…!?;:,)"
+
+
+def _split_sentences(para: str) -> list[str]:
+    """按句末标点切句。
+
+    修复：原实现用 `(?<=[.!?。！？])\\s+`，**要求标点后面有空白**。
+    中文写作在句号/问号后不加空格，于是整段中文被当成"一个句子"，
+    chunk_size 完全失效 —— 实测 420 字中文只产出 1 个块，
+    送进 embedding 会超上下文。这里改为不要求尾部空白。
+    """
+    parts = re.split(r"(?<=[。！？；：!?;:])\s*", para)
+    return [p for p in parts if p and p.strip()]
+
+
+def _join_sentences(left: str, right: str) -> str:
+    """拼接两个句子：中日韩标点结尾不补空格，西文补一个空格。"""
+    if not left:
+        return right
+    if left[-1] in _CJK_TAIL:
+        return left + right
+    return left + " " + right
+
+
+def _hard_split(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """对完全没有标点的超长文本按字符硬切（带 overlap）。
+
+    没有这一步时，"无标点的长文本"（例如一长串数字/无句读的流水账）
+    仍然会产出一个超过 chunk_size 的块。
+    """
+    if chunk_size <= 0 or len(text) <= chunk_size:
+        return [text] if text else []
+    step = max(1, chunk_size - max(0, overlap))
+    out: list[str] = []
+    for i in range(0, len(text), step):
+        piece = text[i : i + chunk_size]
+        if piece:
+            out.append(piece)
+        if i + chunk_size >= len(text):
+            break
+    return out
+
+
 def chunk_text(
     text: str, chunk_size: int = 500, overlap: int = 100
 ) -> list[str]:
@@ -332,14 +377,21 @@ def chunk_text(
                 chunks.append("\n\n".join(current_chunk))
                 current_chunk = []
 
-            sentences = re.split(r"(?<=[.!?。！？])\s+", para)
+            sentences = _split_sentences(para) or [para]
             temp = ""
             for sent in sentences:
+                # 单个句子仍然超长（无标点长文本）→ 按字符硬切
+                if len(sent) > chunk_size:
+                    if temp:
+                        chunks.append(temp)
+                        temp = ""
+                    chunks.extend(_hard_split(sent, chunk_size, overlap))
+                    continue
                 if len(temp) + len(sent) > chunk_size and temp:
                     chunks.append(temp)
                     temp = sent
                 else:
-                    temp = (temp + " " + sent) if temp else sent
+                    temp = _join_sentences(temp, sent)
             if temp:
                 chunks.append(temp)
             continue
@@ -348,13 +400,16 @@ def chunk_text(
         if current_len > chunk_size and current_chunk:
             chunks.append("\n\n".join(current_chunk))
             # 保留最后一小段做 overlap
+            # 修复：overlap=0 时应完全不保留，原实现在 overlap=0 时仍会
+            # 无条件带入一个段落（因为 `and overlap_texts` 使首次判断失效）。
             overlap_texts = []
             overlap_len = 0
-            for p in reversed(current_chunk):
-                if overlap_len + len(p) > overlap and overlap_texts:
-                    break
-                overlap_texts.insert(0, p)
-                overlap_len += len(p)
+            if overlap > 0:
+                for p in reversed(current_chunk):
+                    if overlap_len + len(p) > overlap and overlap_texts:
+                        break
+                    overlap_texts.insert(0, p)
+                    overlap_len += len(p)
             current_chunk = overlap_texts
 
         current_chunk.append(para)
@@ -362,7 +417,9 @@ def chunk_text(
     if current_chunk:
         chunks.append("\n\n".join(current_chunk))
 
-    return chunks if chunks else [text]
+    # 纯空白输入：chunks 为空，直接返回 []
+    # （原实现返回 [text] 即 ["   "]，会把一个空白块送去 embedding）
+    return chunks
 
 
 def get_file_metadata(file_path: str) -> dict:

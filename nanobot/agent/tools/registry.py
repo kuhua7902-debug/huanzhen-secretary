@@ -135,7 +135,12 @@ class ToolRegistry:
             result = await tool.execute(**params)
             duration_ms = int((time.perf_counter() - t0) * 1000)
             preview = str(result)[:300] if result is not None else ""
-            status = "error" if isinstance(result, str) and result.startswith("Error") else "ok"
+            # 统一用 core.security.audit 的判定，避免中文错误被记成 ok
+            try:
+                from core.security.audit import looks_like_tool_error
+                status = "error" if looks_like_tool_error(result) else "ok"
+            except Exception:
+                status = "error" if isinstance(result, str) and result.startswith("Error") else "ok"
             try:
                 from core.security.audit import audit_tool_call
                 audit_tool_call(

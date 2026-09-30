@@ -63,16 +63,44 @@ def _jwt_settings() -> tuple[str, int]:
     return secret, hours
 
 
+# bcrypt 只取密码的前 72 字节，超过会直接抛 ValueError。
+# 而接口 schema 允许最长 128 字符 —— 25 个汉字就是 75 字节，很容易触发：
+# 建号/改密会抛未捕获的 ValueError 变成 HTTP 500，bootstrap 甚至会崩启动。
+# 这里采用通行做法（同 passlib 的 bcrypt_sha256）：超长密码先做 SHA-256 再交给
+# bcrypt，存储时打上前缀标记；旧的无前缀哈希仍按原样校验，保证既有用户不受影响。
+_BCRYPT_SHA256_PREFIX = "bcrypt_sha256$"
+
+
+def _prehash(password: str) -> str:
+    """SHA-256 + base64，把任意长度密码压到 bcrypt 可接受的 44 字节以内。"""
+    import base64
+    import hashlib
+
+    digest = hashlib.sha256(password.encode("utf-8")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+    """哈希密码。超过 bcrypt 72 字节上限时自动改用 SHA-256 预哈希。"""
+    raw = password.encode("utf-8")
+    if len(raw) > 72:
+        return _BCRYPT_SHA256_PREFIX + bcrypt.hashpw(
+            _prehash(password).encode("ascii"), bcrypt.gensalt()
+        ).decode("ascii")
+    return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    """校验密码，同时兼容预哈希格式与历史的无前缀 bcrypt 哈希。"""
     try:
-        return bcrypt.checkpw(
-            password.encode("utf-8"),
-            password_hash.encode("ascii"),
-        )
+        if password_hash.startswith(_BCRYPT_SHA256_PREFIX):
+            stored = password_hash[len(_BCRYPT_SHA256_PREFIX) :]
+            return bcrypt.checkpw(_prehash(password).encode("ascii"), stored.encode("ascii"))
+        raw = password.encode("utf-8")
+        if len(raw) > 72:
+            # 历史哈希不可能由 >72 字节密码产生（当年就会抛错），直接判定失败
+            return False
+        return bcrypt.checkpw(raw, password_hash.encode("ascii"))
     except Exception:
         return False
 

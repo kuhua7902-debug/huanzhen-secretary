@@ -838,8 +838,16 @@ class AgentRunner:
         try:
             result, event, error = outcome
             status = str((event or {}).get("status") or "ok")
-            if status == "ok" and isinstance(result, str) and result.startswith("Error"):
-                status = "error"
+            if status == "ok":
+                # 统一用 core.security.audit 的判定（能识别中文失败文案）
+                try:
+                    from core.security.audit import looks_like_tool_error
+
+                    if looks_like_tool_error(result):
+                        status = "error"
+                except Exception:
+                    if isinstance(result, str) and result.startswith("Error"):
+                        status = "error"
             if error is not None and status == "ok":
                 status = "error"
             preview = str(result if result is not None else "")[:300]

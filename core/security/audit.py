@@ -157,6 +157,24 @@ def _infer_file_action(tool_name: str) -> str:
     return "access"
 
 
+# ── 工具成败判定（统一入口）──
+# 工具以「返回字符串」的方式报告失败（不抛异常），因此要用前缀判断。
+# 之前只认 "Error" 开头，于是中文失败（"错误：..." / "❌ ..."）会被记为
+# status=ok —— 审计里完全看不出这其实是一次失败，事后排查会被误导。
+_ERROR_PREFIXES = ("error", "错误", "失败", "拒绝", "❌", "exception")
+
+
+def looks_like_tool_error(result: Any) -> bool:
+    """判断工具返回值是否表示失败。
+
+    供 runner 与 ToolRegistry 共用，避免两处各写一套判断而漂移。
+    """
+    if not isinstance(result, str):
+        return False
+    head = result.lstrip()[:24].lower()
+    return any(head.startswith(p) for p in _ERROR_PREFIXES)
+
+
 _audit: AuditLogger | None = None
 
 
