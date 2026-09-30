@@ -213,6 +213,4 @@ setInterval(function() {
   updateDebugBar();
 }, 2000);
 
-
-// ===== 数据库管理 & 智能问数 =====
-var _sqAbort = null;
+// 修复：文件末尾残留的全局 var _sqAbort = null; 从未被任何代码使用（智能问数已改用局部读取流），已删除

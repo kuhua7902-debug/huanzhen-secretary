@@ -490,6 +490,161 @@ body {
 .skill-preset-btn.active { background:var(--primary); border-color:var(--primary); color:#fff; }
 .skill-preset-btn.partial { border-color:var(--primary); color:var(--primary); background:var(--primary-light); }
 
+/* ===== 会话详情面板（跟 .skill-panel 一样：从右侧滑出的浮层） ===== */
+.conv-detail-panel {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 92;  /* 比 .skill-panel(z=91) 高，避免同时打开冲突 */
+}
+.conv-detail-panel.open { display: flex; }
+.conv-detail-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.3);
+  animation: fadeIn 0.2s ease;
+}
+.conv-detail-content {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 340px;
+  height: 100%;
+  background: var(--bg-card);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -2px 0 20px rgba(0,0,0,0.15);
+  animation: slideIn 0.25s ease;
+}
+.conv-detail-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.conv-detail-header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.conv-detail-close {
+  cursor: pointer;
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  user-select: none;
+}
+.conv-detail-close:hover { background: var(--bg); color: var(--text); }
+.conv-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 详情卡片 */
+.detail-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:16px; box-shadow:var(--shadow-sm); }
+.detail-card-title { font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border-light); }
+.detail-row { display:flex; align-items:center; justify-content:space-between; padding:7px 0; font-size:13px; line-height:1.6; }
+.detail-row .detail-label { color:var(--text-secondary); font-size:12px; flex-shrink:0; margin-right:12px; }
+.detail-row .detail-value { color:var(--text); text-align:right; word-break:break-all; font-size:12px; font-family:"SF Mono","Cascadia Code",Consolas,monospace; display:flex; align-items:center; gap:6px; }
+.detail-row .detail-value .copy-icon { cursor:pointer; opacity:0.5; font-size:13px; flex-shrink:0; transition:opacity 0.15s; }
+.detail-row .detail-value .copy-icon:hover { opacity:1; color:var(--primary); }
+
+/* 标签样式 */
+.detail-tag { display:inline-block; font-size:11px; padding:2px 10px; border-radius:10px; font-weight:500; white-space:nowrap; }
+.detail-tag.model { background:var(--primary-light); color:var(--primary); }
+.detail-tag.status-active { background:#e8f5e9; color:#27ae60; }
+.detail-tag.status-done { background:#f5f5f5; color:var(--text-secondary); }
+
+/* 快捷操作（单列垂直列表 + 图标在左 + 文字左对齐） */
+.quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.quick-action-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 0;
+  background: var(--bg-card);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font);
+  font-weight: 500;
+  transition: background 0.15s;
+  text-align: left;
+  position: relative;
+}
+.quick-action-btn:last-child { border-bottom: none; }
+.quick-action-btn:hover { background: var(--bg); }
+.quick-action-btn:active { background: var(--primary-light); }
+.quick-action-btn .qa-icon {
+  font-size: 16px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.quick-action-btn:hover .qa-icon { color: var(--primary); }
+.quick-action-btn .qa-label {
+  font-size: 13px;
+  flex: 1;
+  color: var(--text);
+}
+/* 置顶按钮右侧的开关指示器 */
+.quick-action-btn .qa-switch {
+  flex-shrink: 0;
+  width: 32px;
+  height: 18px;
+  background: #d0d4e0;
+  border-radius: 9px;
+  position: relative;
+  transition: background 0.2s;
+}
+.quick-action-btn .qa-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.quick-action-btn.is-on .qa-switch { background: var(--primary); }
+.quick-action-btn.is-on .qa-switch::after { left: 16px; }
+
 /* ===== 数据库 ===== */
 /* ===== 数据库页面（左右分栏） ===== */
 .db-body { display:flex; flex:1; gap:24px; overflow:hidden; padding:20px 28px 28px; }
@@ -881,6 +1036,18 @@ body {
 .btn-outline:hover { background: #e8ecf1; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-color: #d0d4e0; }
 .btn-outline:active { transform: scale(0.95); }
 .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+/* 会话详情按钮激活态（侧栏打开时高亮） */
+.btn-outline.detail-toggle-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(79,110,247,0.25);
+}
+.btn-outline.detail-toggle-btn.active:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
 
 
 /* ===== 团队文件 ===== */
@@ -1542,126 +1709,9 @@ body {
 .dd-log-DEBUG { color: #6a7090; }
 .dd-empty { text-align: center; padding: 30px; color: #5a6080; font-family: var(--font); }
 
-/* ===== 侧边栏模式切换 ===== */
-.sidebar-mode {
-  padding: 10px 14px 6px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-.sidebar-mode .mode-label {
-  font-size: 11px;
-  color: rgba(255,255,255,0.35);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-  display: block;
-}
-.sidebar-mode .mode-buttons {
-  display: flex;
-  gap: 4px;
-}
-.mode-btn {
-  flex: 1;
-  padding: 5px 0;
-  font-size: 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: transparent;
-  color: #8892a8;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: inherit;
-}
-.mode-btn:hover { background: rgba(255,255,255,0.06); color: #d0d4e0; }
-.mode-btn.active {
-  background: #4f6ef7;
-  color: #fff;
-  border-color: #4f6ef7;
-}
-
-/* ===== 计划卡片 ===== */
-.plan-card {
-  margin: 8px 0 8px 48px;
-  background: #fff;
-  border: 1px solid #e8ecf1;
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-  animation: fadeIn 0.3s ease;
-}
-.plan-card .plan-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #4f6ef7;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #eef1ff;
-}
-.plan-card .plan-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-.plan-card .plan-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(79,110,247,0.08);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.plan-card .plan-step .step-num {
-  width: 22px; height: 22px;
-  display: flex; align-items: center; justify-content: center;
-  background: #4f6ef7;
-  color: #fff;
-  border-radius: 50%;
-  font-size: 11px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.plan-card .plan-step .step-desc { flex: 1; color: #1a1f2e; }
-.plan-card .plan-step .step-tool {
-  font-size: 11px;
-  color: #7f8c9b;
-  background: #f2eee8;
-  padding: 2px 8px;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-.plan-card .plan-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  padding-top: 10px;
-  border-top: 1px solid #f0f2f6;
-}
-.plan-card .plan-actions .btn-primary {
-  background: #4f6ef7;
-  color: #fff;
-  border: none;
-  padding: 7px 18px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-.plan-card .plan-actions .btn-primary:hover { background: #3b5de7; }
-.plan-card .plan-actions .btn-outline {
-  background: transparent;
-  color: #7f8c9b;
-  border: 1px solid #e8ecf1;
-  padding: 7px 18px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-.plan-card .plan-actions .btn-outline:hover { border-color: #4f6ef7; color: #4f6ef7; }
+/* 修复（死样式）：这里原本的 `.sidebar-mode / .mode-label / .mode-buttons / .mode-btn`（侧边栏模式切换）
+   与 `.plan-card` 家族（计划卡片）已随对应功能一起删除：
+   Agent 模式按钮和 Plan/Execute 计划卡片的 JS/HTML 全部下线，grep 确认 web/ 下零引用 */
 
 /* ===================================================================
    统计页面 — 全新优化版

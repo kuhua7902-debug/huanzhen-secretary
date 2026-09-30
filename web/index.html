@@ -29,6 +29,7 @@
 .skill-card.active .skill-card-name .active-badge{display:inline}
 </style>
 <script>document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');s.textContent='.skill-card.active{background:#e8f5e9 !important;border-color:#27ae60 !important}';document.head.appendChild(s);});</script>
+</head>
 <body>
 
 <div id="loginOverlay" class="login-overlay open">
@@ -108,10 +109,8 @@
     <span id="userRoleBadge" class="user-role-badge">成员</span>
     <button type="button" class="btn-logout" onclick="logoutKeji()" title="退出登录">退出</button>
   </div>
-  <div class="sidebar-mode">
-    <!-- Agent 模式已整合到自动流程中，无需手动切换 -->
-  </div>
-  
+  <!-- 修复（死标记）：原 sidebar-mode 空壳里只剩一行「Agent 模式已整合到自动流程中」的注释，
+       #modeBtnReact / #modeBtnPlan 按钮早已不存在，属于死标记，连同它的 CSS 一起删除 -->
   <div class="sidebar-footer">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">检查连接中...</span>
@@ -145,6 +144,10 @@
         <button class="btn btn-sm btn-outline" onclick="openHistory()">
           <span class="icon-emoji">📋</span>
           <i class="icon-fa fa-solid fa-clock" style="margin-right:4px"></i>历史
+        </button>
+        <button class="btn btn-sm btn-outline detail-toggle-btn" id="detailToggleBtn">
+          <span class="icon-emoji">📋</span>
+          <i class="icon-fa fa-solid fa-circle-info" style="margin-right:4px"></i>详情
         </button>
         <button class="btn btn-sm btn-outline" onclick="toggleSkillPanel()">
           <span class="icon-emoji">🧠</span>
@@ -241,6 +244,20 @@
           </button>
         </div>
         <div class="ht-list" id="historyList"><div style="text-align:center;padding:30px;color:#999">点击加载</div></div>
+      </div>
+    </div>
+    <!-- 会话详情面板（跟技能面板同款：右侧浮层 + 全屏遮罩） -->
+    <div class="conv-detail-panel" id="convDetailPanel">
+      <div class="conv-detail-backdrop" id="convDetailBackdrop"></div>
+      <div class="conv-detail-content">
+        <div class="conv-detail-header">
+          <h3><span class="icon-emoji">📋</span><i class="icon-fa fa-solid fa-circle-info"></i> 会话详情</h3>
+          <span class="conv-detail-close" id="convDetailClose" title="关闭">
+            <span class="icon-emoji">✕</span>
+            <i class="icon-fa fa-solid fa-xmark"></i>
+          </span>
+        </div>
+        <div class="conv-detail-body" id="convDetailBody"></div>
       </div>
     </div>
     <!-- 技能面板 -->
@@ -514,6 +531,7 @@
             <span style="position:absolute;inset:0;background:#ccc;border-radius:12px;transition:0.3s" id="thinkingToggleTrack"></span>
             <span style="position:absolute;left:3px;bottom:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:0.3s" id="thinkingToggleThumb"></span>
           </label>
+        </div>
         <div class="settings-row">
           <div><label>图标主题</label><div class="desc">切换 Emoji 或 Font Awesome 图标风格</div></div>
           <select id="setIconTheme" onchange="applyIconTheme(this.value)" style="width:160px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px">
@@ -617,7 +635,6 @@
       </div>
     </div>
   </div>
-  </div>
 
   <!-- ===== 数据库页面 ===== -->
   <div class="page" id="page-database">
@@ -665,7 +682,6 @@
             <i class="icon-fa fa-solid fa-paper-plane"></i>
           </button>
         </div>
-        <div id="sqProgress" style="display:none;padding:8px 16px;font-size:12px;color:var(--text-secondary)"></div>
       </div>
     </div>
   </div>
@@ -1034,7 +1050,8 @@
 
 </main>
 
-<link rel="stylesheet" href="/static/css/style.css?v=VERSION">
+<!-- 修复：这里原本第二次 <link rel="stylesheet" href="/static/css/style.css">，
+     与 <head> 中的那一次重复，已删除（重复引入会导致样式重复计算/覆盖顺序不可预期） -->
 
 <!-- ===== 调试面板 ===== -->
 <div class="debug-drawer" id="debugDrawer">

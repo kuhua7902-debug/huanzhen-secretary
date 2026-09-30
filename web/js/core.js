@@ -78,8 +78,33 @@ function kejiFetch(url, options) {
   });
 }
 
-let agentMode = localStorage.getItem('keji_agent_mode') || 'react';
-let currentPlan = null;
+// 说明：agentMode / currentPlan 两个全局原本只服务于已下线的「Agent 模式」「计划卡片」，
+// 随 web/js/init.js 的模式块与 web/js/chat.js 的 Plan/Execute 块一起删除（全仓已确认零引用）。
+
+// ===== 会话状态持久化（sessionStorage）=====
+// 修复：sessionId / currentConvId / conversationId 之前只存在内存里，F5 刷新后整段对话就"丢了"，
+// 下一条消息会发到一个全新会话。这里在关键赋值点写 sessionStorage，并在 init.js 里恢复。
+var _CONV_KEY_S = 'hz_session_id';
+var _CONV_KEY_C = 'hz_conv_id';
+
+function _persistConvState() {
+  try {
+    sessionStorage.setItem(_CONV_KEY_S, sessionId || '');
+    sessionStorage.setItem(_CONV_KEY_C, currentConvId || conversationId || '');
+  } catch (e) { /* 隐私模式/存储被禁用时静默失败，绝不能影响聊天主流程 */ }
+}
+
+function _restoreConvState() {
+  try {
+    var s = sessionStorage.getItem(_CONV_KEY_S) || '';
+    var c = sessionStorage.getItem(_CONV_KEY_C) || '';
+    if (s) sessionId = s;
+    if (c) { currentConvId = c; conversationId = c; }
+  } catch (e) { /* 同上，静默失败 */ }
+}
+
+// 兜底：页面隐藏/卸载时再存一次（会话 id 可能在某些分支里被赋值而没显式调用 _persistConvState）
+window.addEventListener('pagehide', _persistConvState);
 
 var _emojiFA = {
   '💬': 'fa-comments', '📚': 'fa-book-open', '📁': 'fa-folder', '⚙️': 'fa-gear',
@@ -154,10 +179,16 @@ function _replaceEmoji(text) {
   if (!text) return text;
   var map = { '🔧': 'fa-wrench', '✅': 'fa-circle-check', '❌': 'fa-circle-xmark', '🧠': 'fa-brain', '🤔': 'fa-brain', '🔄': 'fa-rotate' };
   for (var em in map) {
-    var re = new RegExp(em.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    // 修复：原先这里构造了 var re = new RegExp(...) 却从未使用（下面用 split/join 实现），属于死代码，已删除
     text = text.split(em).join(_dualIcon(em, map[em]));
   }
   return text;
+}
+
+// 思考面板安全渲染：先转义再换行再替换 emoji
+// 修复（XSS）：思考面板里的内容是模型原始输出 + 工具原始返回，之前直接 innerHTML = _replaceEmoji(...) 会被注入 HTML/脚本
+function _safeThink(html) {
+  return _replaceEmoji(escHtml(html).replace(/\n/g, '<br>'));
 }
 
 // 分类中文名

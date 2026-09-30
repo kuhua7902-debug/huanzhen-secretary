@@ -9,20 +9,8 @@ function closeHistory() {
   var o = document.getElementById('historyOverlay');
   if (o) o.classList.remove('open');
 }
-function loadHistory() {
-  var list = document.getElementById('historyList');
-  if (!list) return;
-  list.innerHTML = '<div style="text-align:center;padding:20px;color:#999">加载中...</div>';
-  kejiFetch('/api/conversations').then(function(r){return r.json()}).then(function(d){
-    var arr = d.conversations||[];
-    if (!arr.length) { list.innerHTML = '<div style="text-align:center;padding:30px;color:#999">暂无对话</div>'; return; }
-    list.innerHTML = arr.map(function(c){
-      return '<div class="ht-item" onclick="loadConv(&quot;'+c.id+'&quot;)">' +
-        '<div class="ht-name">' + escHtml(c.title||'新对话') + '</div>' +
-        '<div class="ht-time">' + (c.message_count||0) + '条 · ' + (c.updated_at||'') + '</div></div>';
-    }).join('');
-  }).catch(function(){list.innerHTML='<div style="padding:20px;color:#999">加载失败</div>';});
-}
+// 修复（死代码）：这里原本还有第一份 loadHistory 定义，被文件末尾的同名定义完全覆盖（永不执行），已删除；
+// 末尾那份同时改为 function 声明，避免删掉本定义后丢失函数提升、其他脚本调用 loadHistory 时报未定义。
 function loadConv(convId) {
   closeHistory();
   kejiFetch('/api/conversations/'+convId).then(function(r){return r.json()}).then(function(d){
@@ -31,6 +19,7 @@ function loadConv(convId) {
     currentConvId = convId;
     conversationId = convId;
     sessionId = convId;
+    _persistConvState();  // 修复：从历史面板打开会话后落盘，F5 仍在该会话里
     el.innerHTML = '';
     if (d.messages && d.messages.length) {
       var msgs = el;
@@ -44,7 +33,7 @@ function loadConv(convId) {
           panel.innerHTML =
             '<div class="tp-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');var t=this.querySelector(\'.tp-toggle\');t.textContent=t.textContent===\'▼\'?\'▶\':\'▼\'">' +
             '<span>' + (window._dualIcon ? window._dualIcon('🧠', 'fa-brain') : '🧠') + ' 思考过程</span><span class="tp-toggle">▼</span></div>' +
-            '<div class="tp-body">' + (window._replaceEmoji ? window._replaceEmoji((m.thinking||'').replace(/\n/g, '<br>')) : escHtml(m.thinking||'')) + '</div>';
+            '<div class="tp-body">' + (window._safeThink ? window._safeThink(m.thinking || '') : escHtml(m.thinking||'')) + '</div>';
           var msgDiv = bubble ? bubble.parentNode : null;
           if (msgDiv) msgs.insertBefore(panel, msgDiv);
         }
@@ -109,10 +98,13 @@ function stopStreaming() {
     try { currentReader.cancel(); } catch(e) {}
     currentReader = null;
   }
-  kejiFetch("/chat/stop", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId })
+  // 修复：后端按查询参数读取 session_id / conversation_id，之前放在 JSON body 里
+  //       导致后端拿到的 sid 恒为空、取消事件永远命中不了（对话其实还在后台跑）。
+  //       现在改为 URL 查询参数（后端同时兼容 body，保持向前兼容），并带上会话 id。
+  var sid = sessionId || currentConvId || conversationId || '';
+  var cid = currentConvId || conversationId || '';
+  kejiFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
+    method: "POST"
   }).catch(function(){});
   document.getElementById("stopBtn").style.display = "none";
 }
@@ -122,10 +114,11 @@ function stopSplitStreaming() {
     try { splitReader.cancel(); } catch(e) {}
     splitReader = null;
   }
-  kejiFetch("/chat/stop", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId })
+  // 修复：同上，改走查询参数；分屏优先用自己的 splitConvId
+  var sid = sessionId || splitConvId || currentConvId || conversationId || '';
+  var cid = splitConvId || currentConvId || conversationId || '';
+  kejiFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
+    method: "POST"
   }).catch(function(){});
   document.getElementById("splitStopBtn").style.display = "none";
   isSplitStreaming = false;
@@ -208,9 +201,10 @@ function sendSplitChat() {
           try {
             var evt = JSON.parse(line.slice(6));
             debugEvents.push(Object.assign({_time: Date.now()}, evt));
+            // 修复（死分支）：分屏用的也是 /chat/stream，后端只会发 thinking / think_token / answer /
+            //   error / done + system_notice / selfcheck_start / selfcheck_result，
+            //   原来的 knowledge / self_check / tool_call / tool_result / answering 永远不会到达，已删除。
             switch (evt.phase) {
-              case 'knowledge':
-                break;
               case 'think_token':
                 if (isShowThinking()) {
                   if (!window._splitThinking) {
@@ -225,17 +219,36 @@ function sendSplitChat() {
                     msgs.scrollTop = msgs.scrollHeight;
                   }
                   window._splitThinkingHtml += evt.token || '';
-                  window._splitThinkingBody.innerHTML = _replaceEmoji(window._splitThinkingHtml);
+                  // 修复（XSS）：思考内容是模型原始输出，必须先转义
+                  window._splitThinkingBody.innerHTML = _safeThink(window._splitThinkingHtml);
                   msgs.scrollTop = msgs.scrollHeight;
                 }
                 break;
-              case 'self_check':
+              case 'selfcheck_start':
+                // 修复：后端真实事件名是 selfcheck_start（原来监听永不出现的 self_check）
                 document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
                 var p = document.createElement('div');
                 p.className = 'phase-badge phase-thinking';
                 p.innerHTML = _dualIcon('🔄', 'fa-rotate') + ' 幻帧二次确认中...';
                 msgs.appendChild(p);
                 document.getElementById('splitStopBtn').style.display = '';
+                break;
+              case 'selfcheck_result':
+                // 修复（新增）：展示自检结果（passed / summary）
+                document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
+                var p = document.createElement('div');
+                p.className = 'phase-badge phase-' + (evt.passed ? 'result' : 'error');
+                p.innerHTML = _dualIcon(evt.passed ? '✅' : '❌', evt.passed ? 'fa-circle-check' : 'fa-circle-xmark')
+                  + (evt.passed ? ' 自检通过' : ' 自检未通过') + (evt.summary ? '：' + escHtml(evt.summary) : '');
+                msgs.appendChild(p);
+                break;
+              case 'system_notice':
+                // 修复（新增）：后端自动压缩上下文等系统提示
+                document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
+                var p = document.createElement('div');
+                p.className = 'phase-badge phase-result';
+                p.innerHTML = _dualIcon('📦', 'fa-box-archive') + ' ' + escHtml(evt.message || '系统提示');
+                msgs.appendChild(p);
                 break;
               case 'thinking':
                 document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
@@ -245,45 +258,11 @@ function sendSplitChat() {
                 msgs.appendChild(p);
                 document.getElementById('splitStopBtn').style.display = '';
                 break;
-              case 'tool_call':
-                document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
-                var p = document.createElement('div');
-                p.className = 'phase-badge phase-tool';
-                p.innerHTML = _dualIcon('🔧', 'fa-wrench') + ' 调用工具: ' + (evt.tools||[]).join(', ');
-                msgs.appendChild(p);
-                document.getElementById('splitStopBtn').style.display = '';
-                if (window._splitThinkingBody && isShowThinking()) {
-                  window._splitThinkingHtml += '\n──────────────\n🔧 调用工具: ' + (evt.tools||[]).join(', ') + '\n';
-                  window._splitThinkingBody.innerHTML = _replaceEmoji(window._splitThinkingHtml);
-                  msgs.scrollTop = msgs.scrollHeight;
-                }
-                break;
-              case 'tool_result':
-                document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
-                var p = document.createElement('div');
-                p.className = 'phase-badge phase-result';
-                p.innerHTML = _dualIcon('✅', 'fa-circle-check') + ' ' + (evt.tool||'') + ' 完成';
-                msgs.appendChild(p);
-                if (window._splitThinkingBody && isShowThinking()) {
-                  var snippet = (evt.result||'').substring(0, 150);
-                  window._splitThinkingHtml += '✅ ' + (evt.tool||'') + ' → ' + snippet + '\n';
-                  window._splitThinkingBody.innerHTML = _replaceEmoji(window._splitThinkingHtml);
-                  msgs.scrollTop = msgs.scrollHeight;
-                }
-                break;
-              case 'answering':
-                document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
-                var aiDiv = document.createElement('div');
-                aiDiv.className = 'message assistant';
-                aiDiv.innerHTML = '<div class="avatar">' + _dualIcon('🤖', 'fa-robot') + '</div><div class="bubble"></div>' +
-    '<button class="copy-btn" onclick="copyMessage(this)" title="复制内容">' + _dualIcon('📋', 'fa-copy') + '</button>';
-                msgs.appendChild(aiDiv);
-                aiBubble = aiDiv.querySelector('.bubble');
-                document.getElementById('splitStopBtn').style.display = 'none';
-                break;
               case 'answer':
                 if (!aiBubble) {
                   document.querySelectorAll('#splitMessages .phase-badge').forEach(function(e){ e.remove(); });
+                  // 修复：原来"收起停止按钮"挂在死事件 answering 上，并入首个 answer token
+                  document.getElementById('splitStopBtn').style.display = 'none';
                   var aiDiv = document.createElement('div');
                   aiDiv.className = 'message assistant';
                   aiDiv.innerHTML = '<div class="avatar">' + _dualIcon('🤖', 'fa-robot') + '</div><div class="bubble"></div>' +
@@ -371,7 +350,9 @@ function deleteAllHistory() {
 }
 
 // === 更新历史列表（带右键 + 多选）===
-loadHistory = function() {
+// 修复：这里原来是 `loadHistory = function() {...}` 赋值形式，文件开头的同名定义被它覆盖（那份已删除）。
+// 改成 function 声明以保留函数提升，避免其他脚本在加载早期调用 loadHistory() 时报未定义。
+function loadHistory() {
   var list = document.getElementById('historyList');
   if (!list) return;
   list.innerHTML = '<div style="text-align:center;padding:20px;color:#999">加载中...</div>';
@@ -392,5 +373,5 @@ loadHistory = function() {
         '<div class="ht-time">' + (c.message_count||0) + '条 · ' + (c.updated_at||'') + '</div></div></div>';
     }).join('');
   }).catch(function(){list.innerHTML='<div style="padding:20px;color:#999">加载失败</div>';});
-};
+}
 

@@ -31,6 +31,7 @@ async function execCommand(cmd, args) {
         conversationId = '';
         currentConvId = '';
         sessionId = '';
+        _persistConvState();  // 修复：删除会话后同步清空持久化状态，避免 F5 恢复到已删除的会话
         document.getElementById('chatMessages').innerHTML =
           '<div class="empty-state"><div class="big-icon">' + _dualIcon('👋', 'fa-hand-wave') + '</div><h3>你好！我是幻帧</h3><p>对话已删除，可以开始新话题。</p></div>';
         document.getElementById('convTitle').textContent = '新对话';
@@ -106,6 +107,7 @@ async function handleSlashInput(msg) {
           sessionId = data.new_session_id;
           currentConvId = data.new_session_id;
           conversationId = data.new_session_id;
+          _persistConvState();  // 修复：压缩后会话 id 已切换，同步持久化
         }
       } else {
         if (statusEl) statusEl.remove();
@@ -262,6 +264,7 @@ async function onQuickCmdClick(cmd) {
           sessionId = data.new_session_id;
           currentConvId = data.new_session_id;
           conversationId = data.new_session_id;
+          _persistConvState();  // 修复：压缩后会话 id 已切换，同步持久化
         }
       } else {
         if (statusEl) statusEl.remove();
@@ -362,269 +365,6 @@ function renderQuickCommands() {
 }
 document.addEventListener('DOMContentLoaded', renderQuickCommands);
 
-async function sendPlanExecute(q, files) {
-  try {
-    var res = await kejiFetch('/chat/plan', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({query: q, session_id: sessionId, conversation_id: currentConvId, files: files||[]})
-    });
-    sessionId = res.headers.get('X-Session-Id') || sessionId;
-    var ncid = res.headers.get('X-Conversation-Id') || '';
-    if (ncid) { currentConvId = ncid; conversationId = ncid; }
-    var reader = res.body.getReader();
-    var dec = new TextDecoder();
-    var buf = '';
-    var thinkingPanel = null, thinkingBody = null, thinkingHtml = '';
-    var thinkingTimer = null;
-    var msgs = document.getElementById('chatMessages');
-    while (true) {
-      var r = await reader.read(); if (r.done) {
-        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
-        break;
-      }
-      buf += dec.decode(r.value, {stream: true});
-      var tokens = buf.split('\n'); buf = tokens.pop() || '';
-      for (var ti = 0; ti < tokens.length; ti++) {
-        var line = tokens[ti]; if (!line.startsWith('data: ')) continue;
-        try {
-          var evt = JSON.parse(line.slice(6));
-          debugEvents.push(Object.assign({_time: Date.now()}, evt));
-          switch (evt.phase) {
-            case 'think_token':
-              if (!thinkingPanel) {
-                thinkingPanel = document.createElement('div');
-                thinkingPanel.className = 'thinking-panel';
-                var hdr = document.createElement('div');
-                hdr.className = 'tp-header';
-                hdr.innerHTML = '<span>'+_dualIcon('🧠','fa-brain')+' 思考计划 <span class="tp-timer">00:00</span></span><span class="tp-toggle">▼</span>';
-                var planTimerStart = Date.now();
-                var planTimerEl = hdr.querySelector('.tp-timer');
-                thinkingTimer = setInterval(function() {
-                  if (!planTimerEl) return;
-                  var sec = Math.floor((Date.now() - planTimerStart) / 1000);
-                  planTimerEl.textContent = String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
-                }, 1000);
-                hdr.onclick = function() {
-                  var body = this.nextElementSibling;
-                  body.classList.toggle('collapsed');
-                  var tog = this.querySelector('.tp-toggle');
-                  tog.textContent = tog.textContent === '▼' ? '▶' : '▼';
-                };
-                thinkingPanel.appendChild(hdr);
-                thinkingBody = document.createElement('div');
-                thinkingBody.className = 'tp-body';
-                thinkingPanel.appendChild(thinkingBody);
-                msgs.appendChild(thinkingPanel);
-                _autoScroll(msgs);
-              }
-              thinkingHtml += evt.token || '';
-              thinkingBody.innerHTML = _replaceEmoji(thinkingHtml.replace(/</g,'&lt;').replace(/\n/g,'<br>'));
-              _autoScroll(msgs);
-              break;
-            case 'plan':
-              // 保留思考面板，标记为已完成
-              if (thinkingPanel) {
-                var hdr = thinkingPanel.querySelector('.tp-header span');
-                if (hdr) hdr.innerHTML = _dualIcon('✅','fa-circle-check')+' 计划已就绪 <span class="tp-timer plan-done">'+(planTimerEl?planTimerEl.textContent:'00:00')+'</span>';
-                if (thinkingBody) { thinkingBody.style.opacity = '0.5'; }
-              }
-              if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
-              currentPlan = evt.plan;
-              if (currentPlan) currentPlan._queryText = q;
-              showPlanCard(evt.plan);
-              break;
-          }
-        } catch(e) {}
-      }
-    }
-  } catch(e) { toast('计划生成失败: ' + e.message, 'error'); isStreaming = false; document.getElementById('sendBtn').disabled = false; }
-}
-function showPlanCard(plan) {
-  var steps = plan.steps || [];
-  var h = '<div class="plan-steps">';
-  if (steps.length) {
-    for (var i = 0; i < steps.length; i++) {
-      var s = steps[i];
-      h += '<div class="plan-step"><span class="step-num">' + (i+1) + '</span><span class="step-desc">' + escHtml(s.description||'') + '</span><span class="step-tool">' + escHtml(s.tool||'') + '</span></div>';
-    }
-  } else { h += '<div class="plan-step" style="color:#999;background:transparent">无需预设计划，将自动调用工具执行</div>'; }
-  h += '</div>';
-  var card = document.createElement('div');
-  card.className = 'plan-card'; card.id = 'planCard';
-  card.innerHTML = '<div class="plan-title">'+_dualIcon('📋','fa-clock')+' ' + escHtml(plan.title||'执行计划') + '</div>' + h +
-    '<div class="plan-actions"><button class="btn-primary" onclick="approvePlan()">✓ 批准执行</button><button class="btn-outline" onclick="revisePlan()">✏ 修改需求</button></div>';
-  document.getElementById('chatMessages').appendChild(card);
-  card.scrollIntoView({behavior:'smooth',block:'nearest'});
-}
-function revisePlan() {
-  var card = document.getElementById('planCard'); if (card) card.remove();
-  currentPlan = null; isStreaming = false;
-  document.getElementById('sendBtn').disabled = false;
-  document.getElementById('chatInput').focus();
-}
-async function approvePlan() {
-  if (!currentPlan) return;
-  var card = document.getElementById('planCard'); if (card) card.remove();
-  isStreaming = true;
-  document.getElementById('stopBtn').style.display = '';
-  try {
-    var q = currentPlan._queryText || document.getElementById('chatInput').value.trim() || '执行';
-    var res = await kejiFetch('/chat/execute', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({plan: currentPlan, query: q, session_id: sessionId, conversation_id: currentConvId})
-    });
-    sessionId = res.headers.get('X-Session-Id') || sessionId;
-    var ncid = res.headers.get('X-Conversation-Id') || '';
-    if (ncid) { currentConvId = ncid; conversationId = ncid; }
-    currentReader = res.body.getReader();
-    var reader = currentReader, dec = new TextDecoder(), buf = '', aiDiv = null, phaseDiv = null, fullReply = '', msgs = document.getElementById('chatMessages');
-    var execTimer = null, execTimerStart = null, execTimerDiv = null;
-    while (true) {
-      var r = await reader.read(); if (r.done) {
-        if (execTimer) { clearInterval(execTimer); execTimer = null; }
-        if (execTimerDiv) { execTimerDiv.remove(); execTimerDiv = null; }
-        break;
-      }
-      buf += dec.decode(r.value, {stream: true});
-      var tokens = buf.split('\n'); buf = tokens.pop() || '';
-      for (var ti = 0; ti < tokens.length; ti++) {
-        var line = tokens[ti]; if (!line.startsWith('data: ')) continue;
-        try {
-          var evt = JSON.parse(line.slice(6));
-          debugEvents.push(Object.assign({_time: Date.now()}, evt));
-          switch (evt.phase) {
-            case 'system_notice':
-              addMessage('assistant', renderMarkdown(escHtml(evt.message || '')));
-              _autoScroll(msgs);
-              break;
-            case 'plan_exec_start': if(phaseDiv)phaseDiv.remove(); phaseDiv=addPhase(_dualIcon('⚡','fa-bolt')+' 执行 '+(evt.total_steps||0)+' 步...','thinking');
-              if (!execTimer) {
-                execTimerStart = Date.now();
-                execTimerDiv = document.createElement('div');
-                execTimerDiv.className = 'phase-badge phase-thinking exec-timer';
-                execTimerDiv.textContent = '⏱ 00:00';
-                msgs.appendChild(execTimerDiv);
-                execTimer = setInterval(function() {
-                  if (!execTimerDiv) return;
-                  var sec = Math.floor((Date.now() - execTimerStart) / 1000);
-                  execTimerDiv.textContent = '⏱ ' + String(Math.floor(sec / 60)).padStart(2,'0') + ':' + String(sec % 60).padStart(2,'0');
-                }, 1000);
-              }
-              break;
-            case 'plan_fallback':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('🔄','fa-rotate')+' '+(evt.message||'执行中'),'thinking');
-              break;
-            case 'thinking':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('🤔','fa-brain')+' 思考中...'+(evt.round?' ('+evt.round+')':''),'thinking');
-              document.getElementById('stopBtn').style.display='';
-              break;
-            case 'think_token':
-              if (!window._execThinkPanel) {
-                window._execThinkPanel = document.createElement('div');
-                window._execThinkPanel.className = 'thinking-panel';
-                var hd = document.createElement('div'); hd.className = 'tp-header';
-                hd.innerHTML = '<span>'+_dualIcon('🧠','fa-brain')+' 思考过程</span><span class="tp-toggle">▼</span>';
-                hd.onclick = function(){this.nextElementSibling.classList.toggle('collapsed');var t=this.querySelector('.tp-toggle');t.textContent=t.textContent=='▼'?'▶':'▼';};
-                window._execThinkPanel.appendChild(hd);
-                window._execThinkBody = document.createElement('div'); window._execThinkBody.className = 'tp-body';
-                window._execThinkPanel.appendChild(window._execThinkBody);
-                msgs.appendChild(window._execThinkPanel);
-                _autoScroll(msgs);
-              }
-              if (window._execThinkBody) {
-                window._execThinkBody.innerHTML += _replaceEmoji(escHtml(evt.token || ''));
-                _autoScroll(msgs);
-              }
-              break;
-            case 'tool_call':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('🔧','fa-wrench')+' '+(evt.tools||[]).join(', '),'thinking');
-              var tools=evt.tools||[];
-              var tcCard=document.createElement('div');
-              tcCard.className='tool-card tc-running';
-              tcCard.innerHTML='<div class="tc-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');var t=this.querySelector(\'.tc-toggle\');t.textContent=t.textContent==\'▼\'?\'▶\':\'▼\'">'+
-                '<span class="tc-icon">'+_dualIcon('🔧','fa-wrench')+'</span><span class="tc-name">调用: '+tools.join(', ')+'</span><span class="tc-status">执行中...</span><span class="tc-toggle">▼</span></div>'+
-                '<div class="tc-body"><span style="color:#999">等待结果...</span></div>';
-              msgs.appendChild(tcCard);
-              _autoScroll(msgs);
-              break;
-            case 'plan_correction':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('🔧','fa-wrench')+' '+(evt.reason||'自动修正中...'),'thinking');
-              var corrCard=document.createElement('div');
-              corrCard.className='tool-card tc-running';
-              corrCard.innerHTML='<div class="tc-header"><span class="tc-icon">'+_dualIcon('🔧','fa-wrench')+'</span><span class="tc-name">修正步骤'+(evt.step||'')+'：'+(evt.tool||'')+'</span><span class="tc-status">执行中...</span><span class="tc-toggle">▼</span></div><div class="tc-body"><span style="color:#999">等待结果...</span></div>';
-              msgs.appendChild(corrCard);
-              _autoScroll(msgs);
-              break;
-            case 'plan_step':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('⚡','fa-bolt')+' 步骤 '+evt.step+'/'+evt.total+'：'+(evt.description||''),'thinking');
-              var stepCard=document.createElement('div');
-              stepCard.className='tool-card tc-running';
-              stepCard.id='tc_plan_'+evt.step;
-              stepCard.innerHTML='<div class="tc-header"><span class="tc-icon">'+_dualIcon('⚡','fa-bolt')+'</span><span class="tc-name">步骤 '+evt.step+': '+(evt.description||'')+'</span><span class="tc-status">执行中...</span><span class="tc-toggle">▼</span></div><div class="tc-body"><span style="color:#999">等待结果...</span></div>';
-              msgs.appendChild(stepCard);
-              _autoScroll(msgs);
-              break;
-            case 'tool_result':
-              if(phaseDiv)phaseDiv.remove();
-              var tc=msgs.querySelectorAll('.tool-card');
-              var lc=null;for(var _ti=tc.length-1;_ti>=0;_ti--){if(!tc[_ti].classList.contains('tc-done')){lc=tc[_ti];break;}}if(!lc)lc=tc[tc.length-1];
-              if(lc&&!lc.classList.contains('tc-done')){
-                lc.classList.remove('tc-running'); lc.classList.add('tc-done');
-                var raw=evt.result||'';
-                var clean=raw.split('\n').filter(function(l){return !/^\{"timestamp"/.test(l.trim());}).join('\n').trim();
-                if(!clean) clean=raw.replace(/\{"timestamp"[^}]*\}/g,'').trim()||raw;
-                var snip=clean.substring(0,250);
-                var isErr=/错误|出错|执行超时|不存在|失败/.test(raw);
-                if(isErr)lc.classList.add('tc-error');
-                lc.querySelector('.tc-status').textContent=isErr?(_dualIcon('❌','fa-circle-xmark')+' 出错'):(_dualIcon('✅','fa-circle-check')+' 完成');
-                var bd=lc.querySelector('.tc-body'); if(bd)bd.textContent=snip||'(无输出)';
-              }else{phaseDiv=addPhase((evt.result&&/错误|出错/.test(evt.result)?_dualIcon('❌','fa-circle-xmark'):_dualIcon('✅','fa-circle-check'))+' '+evt.tool,'result');}
-              break;
-            case 'plan_eval':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase(_dualIcon('🔍','fa-magnifying-glass')+' '+(evt.message||'验证中'),'thinking');
-              break;
-            case 'plan_eval_done':
-              if(phaseDiv)phaseDiv.remove();
-              phaseDiv=addPhase((evt.ok?_dualIcon('✅','fa-circle-check'):_dualIcon('🔧','fa-wrench'))+' '+(evt.message||''), evt.ok?'result':'thinking');
-              setTimeout(function(){if(phaseDiv)phaseDiv.remove();}, 2000);
-              break;
-            case 'plan_answering': if(phaseDiv)phaseDiv.remove(); phaseDiv=addPhase(_dualIcon('🤔','fa-brain')+' '+(evt.message||'思考中'),'thinking'); break;
-            case 'answering': if(phaseDiv)phaseDiv.remove(); phaseDiv=addPhase(_dualIcon('🤔','fa-brain')+' 正在生成回答...','thinking'); aiDiv=addMessage('assistant',''); document.getElementById('stopBtn').style.display='none'; break;
-            case 'answer':
-              if(!aiDiv){if(phaseDiv)phaseDiv.remove();aiDiv=addMessage('assistant','');}
-              fullReply+=evt.token||'';
-              var display=fullReply;
-              // 检测是否整段都是 Python 代码（防幻觉）
-              if(fullReply.length>60){
-                var trimmed=fullReply.trim();
-                var codeLines=trimmed.split('\n').filter(function(l){return /^(import\s|from\s|def\s|class\s|print\(|#|if\s__name__)/.test(l.trim());});
-                var totalLines=trimmed.split('\n').filter(function(l){return l.trim();}).length;
-                if(codeLines.length>0 && codeLines.length>=totalLines*0.5){
-                  display='⚠️ 回答包含大量代码，可能未正确总结。请刷新重试。\n\n<details><summary>原始输出</summary>\n\n```\n'+fullReply+'\n```\n</details>';
-                }
-              }
-              aiDiv.innerHTML=renderMarkdown(escHtml(display));
-              _autoScroll(msgs);
-              break;
-            case 'done': document.querySelectorAll('.phase-badge').forEach(function(e){e.remove()}); document.getElementById('stopBtn').style.display='none';
-              if (execTimer) { clearInterval(execTimer); execTimer = null; }
-              if (execTimerDiv) { execTimerDiv.remove(); execTimerDiv = null; }
-              break;
-          }
-        } catch(e) {}
-      }
-    }
-  } catch(e) { toast('执行失败: '+e.message, 'error'); }
-  document.querySelectorAll('.phase-badge').forEach(function(e){e.remove()});
-  document.getElementById('stopBtn').style.display='none';
-  isStreaming = false; document.getElementById('sendBtn').disabled = false;
-}
 // ===== 页面切换 =====
 function switchPage(page) {
   currentPage = page;
@@ -652,6 +392,7 @@ function newChat() {
   conversationId = '';
   currentConvId = '';
   sessionId = '';
+  _persistConvState();  // 修复：新建对话时同步清空 sessionStorage，否则 F5 会被恢复回旧会话
   document.getElementById('convTitle').textContent = '新对话';
   document.getElementById('chatMessages').innerHTML =
     '<div class="empty-state">' +
@@ -660,6 +401,376 @@ function newChat() {
       '<p>你的企业级 AI 助手。我可以帮你整理文件、搜索知识库、分析文档、回答问题。在下方输入框开始对话。</p>' +
     '</div>';
 }
+
+// ===== 会话详情面板（右侧浮层，可隐藏） =====
+// 必须用 function 声明（hoisted to global）以兼容行内 onclick
+function toggleConvDetail(force) {
+  try {
+    console.log('[toggleConvDetail] 被调用, force=', force);
+    var panel = document.getElementById('convDetailPanel');
+    var btn = document.getElementById('detailToggleBtn');
+    if (!panel) {
+      console.error('[toggleConvDetail] 找不到 #convDetailPanel');
+      try { toast('详情面板元素缺失，请刷新页面', 'error'); } catch (_) {}
+      return;
+    }
+    var willOpen;
+    if (typeof force === 'boolean') {
+      willOpen = force;
+      if (willOpen) panel.classList.add('open');
+      else panel.classList.remove('open');
+    } else {
+      willOpen = !panel.classList.contains('open');
+      panel.classList.toggle('open');
+    }
+    console.log('[toggleConvDetail] willOpen=', willOpen, 'panel.classList=', panel.className);
+    // 同步头部"详情"按钮的高亮态
+    if (btn) {
+      if (willOpen) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+    if (willOpen) {
+      // 用 setTimeout 0 让 panel 先完成 display 切换再异步渲染
+      setTimeout(function() { renderConvDetail(); }, 0);
+    }
+  } catch (e) {
+    console.error('[toggleConvDetail] 错误:', e);
+    try { toast('详情面板打开失败：' + e.message, 'error'); } catch (_) {}
+  }
+}
+// 同步到 window（有些场景如调试/JS 调用需要）
+window.toggleConvDetail = toggleConvDetail;
+
+async function renderConvDetail() {
+  var body = document.getElementById('convDetailBody');
+  if (!body) return;
+
+  // 真实数据：当前会话 ID、创建时间
+  var sid = sessionId || currentConvId || conversationId || '';
+  var createdAt = '—';
+  var messageCount = 0;
+  var model = '—';
+  var status = '进行中';
+  var title = (document.getElementById('convTitle') || {}).textContent || '新对话';
+
+  // 拉取后端设置中的默认模型
+  try {
+    var settings = await kejiFetch('/api/settings').then(function(r){ return r.ok ? r.json() : null; });
+    if (settings) {
+      if (settings.chat_model) model = settings.chat_model;
+      else if (settings.openai_model) model = settings.openai_model;
+      else if (settings.model) model = settings.model;
+    }
+  } catch (e) { /* 静默失败 */ }
+
+  // 拉取当前会话的消息数和创建时间
+  if (sid) {
+    try {
+      var resp = await kejiFetch('/api/conversations/' + sid);
+      if (resp.ok) {
+        var d = await resp.json();
+        if (d && d.messages) messageCount = d.messages.length;
+        if (d && d.created_at) createdAt = d.created_at;
+        else if (d && d.create_time) createdAt = d.create_time;
+        else if (d && d.created) createdAt = d.created;
+        if (d && d.title) title = d.title;
+      }
+    } catch (e) { /* 静默失败 */ }
+  } else {
+    model = model || 'GLM-5.2';
+  }
+
+  // 格式化 createdAt
+  if (createdAt && createdAt !== '—') {
+    try {
+      var dt = new Date(createdAt);
+      if (!isNaN(dt.getTime())) {
+        var pad = function(n){ return n < 10 ? '0' + n : '' + n; };
+        createdAt = dt.getFullYear() + '-' + pad(dt.getMonth()+1) + '-' + pad(dt.getDate())
+                  + ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+      }
+    } catch (e) {}
+  }
+
+  // 状态：当前有会话且在流式中 → 进行中；否则待开始
+  if (typeof isStreaming !== 'undefined' && isStreaming) status = '进行中';
+  else if (sid) status = '已暂停';
+  else status = '待开始';
+
+  var html = '';
+  // 会话详情卡片
+  html += '<div class="detail-card">';
+  html += '<div class="detail-card-title">会话详情</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">会话 ID</span>';
+  html += '<span class="detail-value">' + escHtml(sid || '尚未开始') + (sid ? '<span class="copy-icon" onclick="copySessionId()" title="复制">' + _dualIcon('📋', 'fa-copy') + '</span>' : '') + '</span>';
+  html += '</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">创建时间</span>';
+  html += '<span class="detail-value" style="font-family:var(--font)">' + escHtml(createdAt) + '</span>';
+  html += '</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">模型</span>';
+  html += '<span class="detail-value"><span class="detail-tag model">' + escHtml(model) + '</span></span>';
+  html += '</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">消息数</span>';
+  html += '<span class="detail-value" style="font-family:var(--font)">' + messageCount + '</span>';
+  html += '</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">状态</span>';
+  html += '<span class="detail-value"><span class="detail-tag ' + (status === '进行中' ? 'status-active' : 'status-done') + '">' + escHtml(status) + '</span></span>';
+  html += '</div>';
+
+  html += '<div class="detail-row">';
+  html += '<span class="detail-label">标题</span>';
+  html += '<span class="detail-value" style="font-family:var(--font);max-width:60%">' + escHtml(title) + '</span>';
+  html += '</div>';
+
+  html += '</div>';
+
+  // 快捷操作卡片
+  html += '<div class="detail-card">';
+  html += '<div class="detail-card-title">快捷操作</div>';
+  html += '<div class="quick-actions">';
+  html += '<button class="quick-action-btn" onclick="quickClearSession()" title="清空当前会话消息"><span class="qa-icon">' + _dualIcon('🗑️', 'fa-trash-can') + '</span><span class="qa-label">清空会话</span></button>';
+  html += '<button class="quick-action-btn" onclick="quickExportSession()" title="导出为 Markdown 文件"><span class="qa-icon">' + _dualIcon('📤', 'fa-file-export') + '</span><span class="qa-label">导出会话</span></button>';
+  html += '<button class="quick-action-btn" onclick="quickShareSession()" title="复制会话链接到剪贴板"><span class="qa-icon">' + _dualIcon('🔗', 'fa-share-nodes') + '</span><span class="qa-label">分享会话</span></button>';
+  var _pinned = isPinnedConv();
+  html += '<button class="quick-action-btn' + (_pinned ? ' is-on' : '') + '" id="qaPinBtn" onclick="quickPinSession()" title="置顶 / 取消置顶当前会话"><span class="qa-icon">' + _dualIcon('📌', 'fa-thumbtack') + '</span><span class="qa-label">置顶会话</span><span class="qa-switch" aria-hidden="true"></span></button>';
+  html += '</div>';
+  html += '</div>';
+
+  body.innerHTML = html;
+}
+
+// 置顶存储（localStorage，简单实现）
+function _getPinnedConvs() {
+  try { return JSON.parse(localStorage.getItem('huanzhen_pinned_convs') || '[]'); }
+  catch (e) { return []; }
+}
+function isPinnedConv(id) {
+  var sid = id || sessionId || currentConvId || conversationId || '';
+  return _getPinnedConvs().indexOf(sid) >= 0;
+}
+function _setPinnedConvs(list) {
+  try { localStorage.setItem('huanzhen_pinned_convs', JSON.stringify(list || [])); } catch (e) {}
+}
+
+async function quickClearSession() {
+  var sid = sessionId || currentConvId || conversationId || '';
+  if (!sid) {
+    toast('当前没有可清空的会话', 'info');
+    return;
+  }
+  if (!confirm('确定要清空当前会话吗？此操作会删除所有消息，且不可恢复。')) return;
+  try {
+    var resp = await kejiFetch('/api/conversations/' + sid, { method: 'DELETE' });
+    if (resp.ok || resp.status === 204) {
+      toast('会话已清空', 'success');
+      // 重置前端会话状态并刷新界面
+      try { newChat(); } catch (e) {}
+      // 详情面板重渲染
+      if (document.getElementById('convDetailPanel')?.classList.contains('open')) {
+        setTimeout(renderConvDetail, 200);
+      }
+    } else {
+      toast('清空失败：HTTP ' + resp.status, 'error');
+    }
+  } catch (e) {
+    toast('清空失败：' + e.message, 'error');
+  }
+}
+
+async function quickExportSession() {
+  var sid = sessionId || currentConvId || conversationId || '';
+  if (!sid) {
+    toast('当前没有可导出的会话', 'info');
+    return;
+  }
+  try {
+    var resp = await kejiFetch('/api/conversations/' + sid);
+    if (!resp.ok) { toast('获取会话失败：HTTP ' + resp.status, 'error'); return; }
+    var d = await resp.json();
+    var msgs = (d && d.messages) || [];
+    var title = d.title || d.name || ('conversation-' + sid.substring(0, 8));
+    var lines = [];
+    lines.push('# ' + title);
+    lines.push('');
+    lines.push('**会话 ID：** ' + sid);
+    lines.push('**导出时间：** ' + new Date().toLocaleString('zh-CN'));
+    lines.push('**消息数：** ' + msgs.length);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      var role = (m.role || '').toLowerCase();
+      var roleLabel = role === 'user' ? '👤 用户' : role === 'assistant' ? '🤖 助手' : (role || '消息');
+      lines.push('## ' + roleLabel);
+      lines.push('');
+      var content = m.content || m.text || m.message || '';
+      lines.push(typeof content === 'string' ? content : JSON.stringify(content, null, 2));
+      lines.push('');
+    }
+    var md = lines.join('\n');
+    var blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var safeTitle = String(title).replace(/[\\/:*?"<>|]/g, '_').substring(0, 60);
+    a.download = safeTitle + '_' + new Date().toISOString().slice(0,10) + '.md';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    toast('会话已导出为 Markdown', 'success');
+  } catch (e) {
+    toast('导出失败：' + e.message, 'error');
+  }
+}
+
+async function quickShareSession() {
+  var sid = sessionId || currentConvId || conversationId || '';
+  if (!sid) {
+    toast('当前没有可分享的会话', 'info');
+    return;
+  }
+  // 组装可分享链接（当前页 URL + hash 携带 convId）
+  var base = location.origin + location.pathname;
+  var shareUrl = base + '#conv=' + encodeURIComponent(sid);
+  var shareText = '幻帧对话分享\n会话ID: ' + sid + '\n链接: ' + shareUrl;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = shareText;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    toast('会话链接已复制到剪贴板', 'success');
+  } catch (e) {
+    toast('复制失败：' + e.message + '\n请手动复制：' + shareUrl, 'error');
+  }
+}
+
+function quickPinSession() {
+  var sid = sessionId || currentConvId || conversationId || '';
+  if (!sid) {
+    toast('当前没有可置顶的会话', 'info');
+    return;
+  }
+  var list = _getPinnedConvs();
+  var idx = list.indexOf(sid);
+  if (idx >= 0) {
+    list.splice(idx, 1);
+    toast('已取消置顶', 'info');
+  } else {
+    list.push(sid);
+    toast('已置顶会话', 'success');
+  }
+  _setPinnedConvs(list);
+  // 重新渲染详情面板以更新按钮文字
+  if (document.getElementById('convDetailPanel')?.classList.contains('open')) {
+    setTimeout(renderConvDetail, 50);
+  }
+  // 触发自定义事件，让"历史"面板等可以重新排序
+  try { window.dispatchEvent(new CustomEvent('huanzhen:pin-changed', { detail: { sid: sid, pinned: idx < 0 } })); } catch (e) {}
+}
+
+function copySessionId() {
+  var sid = sessionId || currentConvId || conversationId || '';
+  if (!sid) { toast('当前没有会话 ID', 'info'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(sid).then(function() {
+      toast('已复制会话 ID', 'success');
+    }).catch(function(){
+      _legacyCopy(sid);
+    });
+  } else {
+    _legacyCopy(sid);
+  }
+}
+
+function _legacyCopy(text) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('已复制', 'success');
+  } catch (e) {
+    toast('复制失败：' + e.message, 'error');
+  }
+}
+
+// ESC 关闭会话详情面板（仅在打开时）
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var panel = document.getElementById('convDetailPanel');
+    if (panel && panel.classList.contains('open')) {
+      toggleConvDetail(false);
+    }
+  }
+});
+
+// 当切换会话或新建会话时，若详情面板打开则刷新
+// 监听 newChat 已被 hook（chat.js 中 conversationId='' 等赋值后会触发）
+// 用 setInterval 监听 sessionId 变化：会话切换时自动刷新详情面板
+(function _watchConvDetail() {
+  var lastSid = (typeof sessionId !== 'undefined') ? sessionId : '';
+  setInterval(function() {
+    var panel = document.getElementById('convDetailPanel');
+    if (!panel || !panel.classList.contains('open')) return;
+    var cur = (typeof sessionId !== 'undefined') ? sessionId : '';
+    if (cur !== lastSid) {
+      lastSid = cur;
+      try { renderConvDetail(); } catch (e) { console.error(e); }
+    }
+  }, 800);
+})();
+
+// ===== 绑定"详情"按钮和面板关闭事件（用 addEventListener，不依赖行内 onclick） =====
+(function _bindConvDetailEvents() {
+  function bind() {
+    var btn = document.getElementById('detailToggleBtn');
+    if (btn && !btn._cdBound) {
+      btn._cdBound = true;
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleConvDetail();
+      });
+    }
+    var bd = document.getElementById('convDetailBackdrop');
+    if (bd && !bd._cdBound) {
+      bd._cdBound = true;
+      bd.addEventListener('click', function() { toggleConvDetail(); });
+    }
+    var closeBtn = document.getElementById('convDetailClose');
+    if (closeBtn && !closeBtn._cdBound) {
+      closeBtn._cdBound = true;
+      closeBtn.addEventListener('click', function() { toggleConvDetail(); });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+  // 兜底：晚一点再试一次
+  setTimeout(bind, 200);
+  setTimeout(bind, 800);
+})();
 
 // ===== 技能面板 =====
 function toggleSkillPanel() {
@@ -901,35 +1012,20 @@ function deactivateSkill(name) {
   }).catch(function(e){ toast('卸载失败: ' + e.message, 'error'); });
 }
 
-function toggleConvPanel() {
-  const panel = document.getElementById('convPanel');
-  panel.classList.toggle('open');
-  if (panel.classList.contains('open')) loadConvList();
-}
-
-function loadConvList() {
-  kejiFetch('/api/conversations').then(r => r.json()).then(d => {
-    const list = document.getElementById('convList');
-    if (!d.conversations || d.conversations.length === 0) {
-      list.innerHTML = '<div class="empty-list">暂无对话历史</div>';
-      return;
-    }
-    list.innerHTML = d.conversations.map(c => `
-      <div class="conv-item" onclick="loadConversation('${c.id}')">
-        <div class="conv-title">${escHtml(c.title)}</div>
-        <div class="conv-time">${c.updated_at || ''} · ${c.message_count || 0} 条</div>
-      </div>
-    `).join('');
-  }).catch(() => {});
-}
+// 修复（死代码）：toggleConvPanel / loadConvList 引用的 #convPanel、#convList 在 index.html 中已不存在，
+// 功能被历史面板（history.js 的 openHistory）取代，整体删除。
 
 function loadConversation(id) {
   kejiFetch('/api/conversations/' + id).then(r => r.json()).then(d => {
     currentConvId = id;
     conversationId = id;
     sessionId = id;  // ← 关键：让后续消息发到同一个会话
+    _persistConvState();  // 修复：会话切换后落盘，F5 仍在该会话里
     document.getElementById('convTitle').textContent = d.conversation.title;
-    document.getElementById('convPanel').classList.remove('open');
+    // 修复：#convPanel 已随对话列表面板一起下线，原来这里必然抛 TypeError，
+    //      把后面的消息渲染整段吃掉（loadConversation 仍被 pages.js 的对话表格 onclick 调用）
+    var convPanel = document.getElementById('convPanel');
+    if (convPanel) convPanel.classList.remove('open');
 
     const msgs = document.getElementById('chatMessages');
     msgs.innerHTML = '';
@@ -944,7 +1040,7 @@ function loadConversation(id) {
           panel.innerHTML =
             '<div class="tp-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');var t=this.querySelector(\'.tp-toggle\');t.textContent=t.textContent===\'▼\'?\'▶\':\'▼\'">' +
             '<span>' + _dualIcon('🧠', 'fa-brain') + ' 思考过程</span><span class="tp-toggle">▼</span></div>' +
-            '<div class="tp-body">' + _replaceEmoji(escHtml(m.thinking).replace(/\n/g, '<br>')) + '</div>';
+            '<div class="tp-body">' + _safeThink(m.thinking) + '</div>';
           var msgDiv = bubble ? bubble.closest('.message') : null;
           if (msgDiv) msgs.insertBefore(panel, msgDiv);
         }
@@ -1047,20 +1143,25 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', setupDragDrop);
 } else { setupDragDrop(); }
 
+// 中断关键词（整串精确匹配，不再用子串 indexOf）
+const STOP_KEYWORDS = new Set([
+  "停了", "停止", "别做了", "取消", "别点了", "stop", "别干了", "别动",
+  "别继续", "不准动", "不要动了", "不要了", "别搞了"
+]);
+
 async function sendChat() {
   const input = document.getElementById('chatInput');
   const btn = document.getElementById('sendBtn');
   const msg = input.value.trim();
-  if (isStreaming) return;
 
-  // ── ⭐ 停止关键词检测：用户说"停了/停止/别做了" → 直接中断，不发消息 ──
-  const STOP_KEYWORDS = ["停了", "停止", "别做了", "取消", "别点了", "stop", "别干了", "别动",
-                         "别继续", "不准动", "不要动了", "不要了", "别搞了"];
-  const lowerMsg = msg.toLowerCase();
-  if (STOP_KEYWORDS.some(function(k) { return lowerMsg.indexOf(k) >= 0; })) {
+  // ── ⭐ 停止关键词检测：只有当"正在流式输出"且"整条消息恰好就是某个停止词"时才算中断命令 ──
+  // 修复（两处）：1) 原来用 indexOf 子串匹配，像"如何取消订阅"、任何含 "stop" 的英文提问都会被吞掉，
+  //              输入框被清空且没有任何反馈，用户以为消息丢了；
+  //              2) 原来这段代码写在 `if (isStreaming) return;` 之后，真正在流式输出时会在那一行直接返回，
+  //              所以停止命令永远不可能在需要时生效。现在改为 Set 整串精确匹配 + 仅在 isStreaming 时判定。
+  if (isStreaming && STOP_KEYWORDS.has(msg.toLowerCase())) {
     input.value = '';
     input.style.height = 'auto';
-    var sid_stop = sessionId || currentConvId || conversationId || '';
     stopStreaming();
     // 清空正在显示的思考/工具面板
     document.querySelectorAll('.phase-badge').forEach(function(e) { e.remove(); });
@@ -1073,9 +1174,15 @@ async function sendChat() {
     document.getElementById('stopBtn').style.display = 'none';
     isStreaming = false;
     btn.disabled = false;
+    // 修复：给出可见反馈（原来静默清空输入框，用户完全不知道发生了什么）
+    addPhase('⏹ 已中断当前回答', 'result');
+    toast('已中断当前回答', 'info');
     input.focus();
     return;
   }
+
+  // 未在流式输出 → 不是停止命令，正常发送；正在输出时不允许并发发送
+  if (isStreaming) return;
 
   isStreaming = true;
   btn.disabled = true;
@@ -1130,6 +1237,7 @@ async function sendChat() {
     sessionId = res.headers.get('X-Session-Id') || sessionId;
     const newConvId = res.headers.get('X-Conversation-Id') || '';
     if (newConvId) { currentConvId = newConvId; conversationId = newConvId; }
+    _persistConvState();  // 修复：新会话 id 立即落盘，F5 后还能接着这段对话
 
     currentReader = res.body.getReader();
     const reader = currentReader;
@@ -1142,7 +1250,7 @@ async function sendChat() {
     let thinkingBody = null;
     let thinkingHtml = '';
     let thinkingTimer = null;
-    let toolTimers = {};
+    let doneHandled = false;   // done 事件是否已到达（决定收尾时能否立刻删掉状态栏）
     let statusBar = document.createElement('div');
     statusBar.className = 'phase-badge phase-thinking status-bar';
     statusBar.textContent = '⏳ 处理中';
@@ -1160,10 +1268,10 @@ async function sendChat() {
         try {
           const evt = JSON.parse(line.slice(6));
           debugEvents.push(Object.assign({_time: Date.now()}, evt));
+          // 修复（死分支）：后端 /chat/stream 实际只会下发 thinking / think_token / answer / error / done，
+          //   以及 system_notice（上下文自动压缩提示）、selfcheck_start / selfcheck_result（合规自检）；
+          //   原来的 knowledge / self_check / tool_call / tool_result / answering 永远不会到达，已全部删除。
           switch (evt.phase) {
-            case 'knowledge':
-              phaseDiv = addPhase('📖 已检索知识库', 'knowledge');
-              break;
             case 'think_token':
               if (isShowThinking()) {
                 if (!thinkingPanel) {
@@ -1186,7 +1294,8 @@ async function sendChat() {
                   _autoScroll(msgs);
                 }
                 thinkingHtml += evt.token || '';
-                thinkingBody.innerHTML = _replaceEmoji(thinkingHtml);
+                // 修复（XSS）：思考面板累积的是模型原始输出，必须先用 _safeThink 转义再写入 innerHTML
+                thinkingBody.innerHTML = _safeThink(thinkingHtml);
                 _autoScroll(msgs);
               }
               if (statusBar) {
@@ -1207,77 +1316,36 @@ async function sendChat() {
               phaseDiv = addPhase('🤔 思考中... (' + (evt.round||'') + ')', 'thinking');
               document.getElementById('stopBtn').style.display = '';
               break;
-            case 'self_check':
+            case 'selfcheck_start':
+              // 修复：后端真实事件名是 selfcheck_start（原来监听的是永远不会下发的 self_check），沿用原有进度提示
               if (phaseDiv) phaseDiv.remove();
               phaseDiv = addPhase('🔄 幻帧二次确认中...', 'thinking');
               document.getElementById('stopBtn').style.display = '';
               break;
-            case 'tool_call':
-              if (phaseDiv) phaseDiv.remove();
-              document.getElementById('stopBtn').style.display = '';
-              (evt.tools||[]).forEach(function(tname) {
-                var card = document.createElement('div');
-                card.className = 'tool-card tc-running';
-                card.id = 'tc_' + tname + '_' + Date.now();
-                card.innerHTML = '<div class="tc-header" onclick="this.nextElementSibling.classList.toggle(\'collapsed\');var t=this.querySelector(\'.tc-toggle\');t.textContent=t.textContent==\'▼\'?\'▶\':\'▼\'">' +
-                  '<span class="tc-icon">⚡</span>' +
-                  '<span class="tc-name">' + escHtml(tname) + '</span>' +
-                  '<span class="tc-status">运行中...</span>' +
-                  '<span class="tc-toggle">▼</span></div>' +
-                  '<div class="tc-body"><span style="color:#999">等待结果...</span></div>';
-                msgs.appendChild(card);
-                _autoScroll(msgs);
-                // 启动耗时计时器
-                var startTime = Date.now();
-                toolTimers[card.id] = setInterval(function() {
-                  var elapsed = Math.floor((Date.now() - startTime) / 1000);
-                  var s = card.querySelector('.tc-status');
-                  if (s) s.textContent = '运行中... ' + elapsed + 's';
-                }, 1000);
-              });
-              if (thinkingBody && isShowThinking()) {
-                thinkingHtml += '\n──────────────\n🔧 调用工具: ' + (evt.tools||[]).join(', ') + '\n';
-                thinkingBody.innerHTML = _replaceEmoji(thinkingHtml);
-                _autoScroll(msgs);
-              }
+            case 'selfcheck_result':
+              // 修复（新增）：之前完全没处理自检结果。passed=是否通过，summary=中文摘要；
+              // 摘要是后端拼的文本，用 escHtml 转义后再交给 addPhase 渲染
+              //（addPhase 只对 _dualIcon 之外的 emoji 开头文本走图标分支，所以这里用 emoji 前缀）
+              if (phaseDiv) { phaseDiv.remove(); phaseDiv = null; }
+              addPhase(
+                (evt.passed ? '✅ 自检通过' : '❌ 自检未通过')
+                  + (evt.summary ? '：' + escHtml(evt.summary) : ''),
+                evt.passed ? 'result' : 'error');
               break;
-            case 'tool_result':
-              if (phaseDiv) phaseDiv.remove();
-              // 更新对应的 tool card
-              var cards = msgs.querySelectorAll('.tool-card');
-              var lastCard = cards[cards.length - 1];
-              if (lastCard && !lastCard.classList.contains('tc-done')) {
-                // 清除耗时计时器
-                if (toolTimers[lastCard.id]) {
-                  clearInterval(toolTimers[lastCard.id]);
-                  delete toolTimers[lastCard.id];
-                }
-                lastCard.classList.remove('tc-running');
-                lastCard.classList.add('tc-done');
-                var snippet = (evt.result||'').substring(0, 300);
-                var isErr = evt.result && (evt.result.indexOf('错误') >= 0 || evt.result.indexOf('出错') >= 0);
-                if (isErr) lastCard.classList.add('tc-error');
-                lastCard.querySelector('.tc-status').textContent = isErr ? '❌ 出错' : '✅ 完成';
-                var body = lastCard.querySelector('.tc-body');
-                body.textContent = snippet;
-              } else {
-                phaseDiv = addPhase((evt.result && evt.result.indexOf('错误') >= 0 ? '❌ ' : '✅ ') + evt.tool + ' 完成', evt.result && evt.result.indexOf('错误') >= 0 ? 'error' : 'result');
-              }
-              if (thinkingBody && isShowThinking()) {
-                var snippet2 = (evt.result||'').substring(0, 150);
-                thinkingHtml += '✅ ' + evt.tool + ' → ' + snippet2 + '\n';
-                thinkingBody.innerHTML = _replaceEmoji(thinkingHtml);
-                _autoScroll(msgs);
-              }
-              break;
-            case 'answering':
-              if (phaseDiv) phaseDiv.remove();
-              if (statusBar) { statusBar.textContent = '💬 回答中'; }
-              aiDiv = addMessage('assistant', '');
-              document.getElementById('stopBtn').style.display = 'none';
+            case 'system_notice':
+              // 修复（新增）：后端自动压缩上下文等系统提示，原来完全没有处理，用户看不到任何说明
+              if (statusBar) statusBar.textContent = '📦 ' + (evt.message || '系统提示');
+              addPhase('📦 ' + escHtml(evt.message || '系统提示'), 'result');
               break;
             case 'answer':
-              if (!aiDiv) { if(phaseDiv)phaseDiv.remove(); aiDiv = addMessage('assistant',''); }
+              // 修复：'answering' 是后端永远不会下发的死事件，它的职责（建气泡 / 收起停止按钮 / 状态栏）
+              //      合并到首个 answer token，行为与原 answering 分支一致
+              if (!aiDiv) {
+                if (phaseDiv) { phaseDiv.remove(); phaseDiv = null; }
+                if (statusBar) { statusBar.textContent = '💬 回答中'; }
+                aiDiv = addMessage('assistant', '');
+                document.getElementById('stopBtn').style.display = 'none';
+              }
               fullReply += evt.token || '';
               aiDiv.innerHTML = renderMarkdown(escHtml(fullReply));
               _autoScroll(msgs);
@@ -1286,10 +1354,18 @@ async function sendChat() {
               toast('错误: ' + escHtml(evt.message||''), 'error');
               break;
             case 'done':
-              document.querySelectorAll('.phase-badge').forEach(e => e.remove());
+              // 修复：.phase-badge 也包含状态栏自身，原来先 forEach 全删，
+              //      后面的"✅ 完成"写进的是一个已脱离文档的节点，用户永远看不到完成状态。
+              //      现在改为跳过状态栏，并标记 doneHandled 让循环后的收尾清理不要立刻删掉它。
+              doneHandled = true;
+              document.querySelectorAll('.phase-badge').forEach(function(e) {
+                if (e !== statusBar) e.remove();
+              });
               document.getElementById('stopBtn').style.display = 'none';
               if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
               if (statusBar) {
+                statusBar.className = 'phase-badge phase-result status-bar';
+                statusBar.style.animation = 'none';
                 statusBar.textContent = '✅ 完成';
                 setTimeout(function(){
                   if (statusBar) { statusBar.remove(); statusBar = null; }
@@ -1300,9 +1376,13 @@ async function sendChat() {
         } catch(e) {}
       }
     }
-    document.querySelectorAll('.phase-badge').forEach(e => e.remove());
+    // 修复：done 分支已把状态栏改写为"✅ 完成"并安排 2 秒后自动移除，
+    //      这里不能再无条件删除，否则完成提示根本来不及显示；只有没收到 done 时才立刻清掉
+    document.querySelectorAll('.phase-badge').forEach(function(e) {
+      if (e !== statusBar) e.remove();
+    });
     if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
-    if (statusBar) { statusBar.remove(); statusBar = null; }
+    if (statusBar && !doneHandled) { statusBar.remove(); statusBar = null; }
   } catch (e) {
     toast('网络错误: ' + e.message, 'error');
   }

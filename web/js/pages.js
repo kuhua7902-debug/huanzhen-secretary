@@ -795,16 +795,8 @@ function testWorkConn() {
 }
 
 // ================================================================
-function switchDbTab(tab) {
-  document.querySelectorAll('.db-tab').forEach(function(t){t.style.borderBottom='2px solid transparent';t.style.color='var(--text-secondary)';t.style.fontWeight='400';t.classList.remove('active');});
-  document.querySelectorAll('.db-panel').forEach(function(p){p.style.display='none';});
-  var btn = document.querySelector('.db-tab[data-dbtab="'+tab+'"]');
-  if (btn) { btn.style.borderBottom='2px solid var(--primary)'; btn.style.color='var(--primary)'; btn.style.fontWeight='600'; btn.classList.add('active'); }
-  var panel = document.getElementById('dbpanel-'+tab);
-  if (panel) panel.style.display='block';
-  if (tab === 'sources') loadDbConfigs();
-  if (tab === 'query') loadDbConfigSelect();
-}
+// 修复（死代码）：switchDbTab 引用的 .db-tab / .db-panel / #dbpanel-* 在 index.html 中都不存在
+//（数据库页已改为「数据源管理 + 智能问数」左右两栏布局），属于永远不可达代码，已删除。
 
 function loadDbConfigs() {
   var list = document.getElementById('dbConfigList');
@@ -969,31 +961,8 @@ function executeSmartQuery() {
   });
 }
 
-function handleSqResult(el, d) {
-  var summary = d.summary || '';
-  var sql = d.generated_sql || '';
-  var cols = d.columns || [];
-  var rows = d.data || [];
-  var total = d.total || rows.length;
-
-  var html = '';
-  if (summary) html += '<div>' + summary + '</div>';
-  if (sql) html += '<div class="sq-sql-toggle" onclick="var p=this.nextElementSibling;var d=p.style.display;if(!d||d===\'none\'){p.style.display=\'block\';this.querySelector(\'.sq-sql-arrow\').textContent=\'▼\';}else{p.style.display=\'none\';this.querySelector(\'.sq-sql-arrow\').textContent=\'▶\';}"><span class="sq-sql-arrow">▶</span> 查看 SQL</div><div class="sq-msg-sql" style="display:none;margin-top:4px">' + escHtml(sql) + '</div>';
-  if (cols.length) {
-    html += '<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">共 ' + total + ' 行</div>';
-    html += '<div style="overflow-x:auto;margin-top:4px"><table style="font-size:11px;border-collapse:collapse;width:100%"><thead><tr>';
-    cols.forEach(function(c){ html += '<th style="padding:4px 6px;border:1px solid var(--border-light);text-align:left;white-space:nowrap">' + escHtml(c) + '</th>'; });
-    html += '</tr></thead><tbody>';
-    var maxR = Math.min(rows.length, 20);
-    for (var i=0; i<maxR; i++) {
-      html += '<tr>';
-      cols.forEach(function(c){ var v = rows[i][c]; html += '<td style="padding:3px 6px;border:1px solid var(--border-light);font-size:11px">' + escHtml(v!==null&&v!==undefined?String(v):'') + '</td>'; });
-      html += '</tr>';
-    }
-    html += '</tbody></table></div>';
-  }
-  el.innerHTML = html;
-}
+// 修复（死代码）：handleSqResult 已被 buildSqResultHtml 取代（executeSmartQuery 只调用后者），
+// 且它内部的 summary 是未转义拼接，属于既不可达又有 XSS 风险的重复实现，整体删除。
 
 function buildSqResultHtml(d) {
   var summary = d.summary || '';
@@ -1002,7 +971,8 @@ function buildSqResultHtml(d) {
   var rows = d.data || [];
   var total = d.total || rows.length;
   var html = '';
-  if (summary) html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light)">' + summary + '</div>';
+  // 修复（XSS）：summary 是后端/模型生成的文本，原来直接拼进 innerHTML，这里补上 escHtml
+  if (summary) html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light)">' + escHtml(summary) + '</div>';
   if (sql) html += '<div class="sq-sql-toggle" onclick="var p=this.nextElementSibling;var d=p.style.display;if(!d||d===\'none\'){p.style.display=\'block\';this.querySelector(\'.sq-sql-arrow\').textContent=\'▼\';}else{p.style.display=\'none\';this.querySelector(\'.sq-sql-arrow\').textContent=\'▶\';}"><span class="sq-sql-arrow">▶</span> 查看 SQL</div><div class="sq-msg-sql" style="display:none;margin-top:6px">' + escHtml(sql) + '</div>';
   if (cols.length) {
     html += '<div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">共 ' + total + ' 行</div>';
