@@ -111,11 +111,9 @@ class ResetRequest(BaseModel):
 _cache_buster: str = ""
 
 def _get_cache_buster() -> str:
-    global _cache_buster
-    if not _cache_buster:
-        import time
-        _cache_buster = str(int(time.time() * 1000))
-    return _cache_buster
+    # 每次请求都重新计算 cache-buster，确保浏览器拿到最新版本
+    import time
+    return str(int(time.time() * 1000))
 
 
 def get_html() -> str:
@@ -180,31 +178,108 @@ async def chat_stream(req: ChatRequest, request: Request):
     )
 
 
-@app.post("/chat/stop")
-async def stop_chat(session_id: str = "", conversation_id: str = ""):
-    adapter = await get_adapter()
-    sid = conversation_id or session_id
-    triggered = adapter.cancel_chat(sid)
+class StopRequest(BaseModel):
+    session_id: str = Field(default="", description="会话ID（nanobot session key）")
+    conversation_id: str = Field(default="", description="对话ID")
 
-    # ── 同时触发 CoreAgent 取消（CLI / 语音模式可能正在跑） ──
+
+def _stop_candidates(session_id: str, conversation_id: str, user) -> list[str]:
+    """算出所有可能命中的 nanobot session key。
+
+    前端拿到的 X-Session-Id 是 `user:{uid}:{conv}` 形式的内部键，
+    而历史列表里用的是纯 conv_id，因此两种都要试。
+    """
+    cands: list[str] = []
+    for raw in (conversation_id, session_id):
+        key = (raw or "").strip()
+        if key and key not in cands:
+            cands.append(key)
+    # 由 conv_id 还原出当前登录用户的会话键
+    uid = getattr(user, "id", "") if user else ""
+    convs = [c for c in (conversation_id, session_id) if (c or "").strip()]
+    if uid and uid not in ("anonymous", "localhost", "service"):
+        for conv in convs:
+            # 已经是完整键的话不重复拼
+            if conv.startswith("user:"):
+                continue
+            sk = f"user:{uid}:{conv.strip()}"
+            if sk not in cands:
+                cands.append(sk)
+    return cands
+
+
+@app.post("/chat/stop")
+async def stop_chat(request: Request):
+    """中断正在执行的对话。
+
+    兼容两种传参方式（历史上前端把参数放在 JSON body，而后端按查询参数读取，
+    导致 sid 恒为空、取消事件永远命中不了，对话其实一直在后台跑）：
+      - 查询参数 ?session_id=...&conversation_id=...
+      - JSON body {"session_id": ..., "conversation_id": ...}
+    """
+    adapter = await get_adapter()
+
+    # 查询参数
+    q_session = (request.query_params.get("session_id") or "").strip()
+    q_conv = (request.query_params.get("conversation_id") or "").strip()
+
+    # JSON body（容错：不是 JSON 就忽略）
+    b_session = b_conv = ""
     try:
-        from core.agent import agent as core_agent
-        if core_agent._cancel_event:
-            core_agent._cancel_event.set()
-            logger.info("CoreAgent cancel triggered via /chat/stop")
+        data = await request.json()
+        if isinstance(data, dict):
+            b_session = str(data.get("session_id") or "").strip()
+            b_conv = str(data.get("conversation_id") or "").strip()
     except Exception:
         pass
 
-    # ── 同时触发 GUI 紧急停止 ──
+    session_id = q_session or b_session
+    conversation_id = q_conv or b_conv
+
+    user = getattr(request.state, "user", None)
+    candidates = _stop_candidates(session_id, conversation_id, user)
+
+    triggered = False
+    hit = ""
+    for key in candidates:
+        if adapter.cancel_chat(key):
+            triggered = True
+            hit = key
+            break
+
+    # ── 同时触发 CoreAgent 取消（CLI / 语音模式可能正在跑） ──
+    # 说明：legacy CoreAgent 是进程内单例，无法按会话区分，只在确实命中时联动，
+    # 避免误伤其他渠道正在执行的任务。
+    if triggered:
+        try:
+            from core.agent import agent as core_agent
+            if core_agent._cancel_event:
+                core_agent._cancel_event.set()
+                logger.info("CoreAgent cancel triggered via /chat/stop")
+        except Exception:
+            pass
+
+    # ── GUI 紧急停止 ──
+    # 这是一个进程级全局标志，会影响所有会话的桌面自动化，
+    # 因此只在确实中断了某个会话时触发；否则清掉可能残留的陈旧标志。
     try:
-        from core.gui_abort import trigger_abort
-        trigger_abort(reason=f"用户停止会话 {sid}")
+        if triggered:
+            from core.gui_abort import trigger_abort
+            trigger_abort(reason=f"用户停止会话 {hit}")
+        else:
+            from core.gui_abort import clear_abort
+            clear_abort()
     except Exception:
         pass
 
     if triggered:
-        return {"status": "ok", "message": "已中断对话", "session_id": sid}
-    return {"status": "warning", "message": "未找到正在执行的对话", "session_id": sid}
+        return {"status": "ok", "message": "已中断对话", "session_id": hit}
+    return {
+        "status": "warning",
+        "message": "未找到正在执行的对话",
+        "session_id": session_id or conversation_id,
+        "candidates": candidates,
+    }
 
 
 @app.post("/chat/reset")

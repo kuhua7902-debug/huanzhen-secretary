@@ -14,6 +14,9 @@ config.yaml
 .env
 .env.*
 data/security/
+# 含密钥的本地副本一律不入库（启动脚本请从 .env 读密钥）
+*.local.bat
+*密钥*.txt
 
 # Runtime data
 data/
@@ -21,6 +24,15 @@ sessions/
 logs/
 .memdb/
 .deepseek/
+
+# 截图与演示产物（gui_tools.screenshot_screen 默认落点，会持续增长；实测已堆积 160MB+）
+screenshots/
+huanzhen-screenshots/
+# 工作流删除时产生的备份
+data/workflows/.trash/
+# 自检 / 视觉调试输出
+data/image/
+data/tmp/
 
 # Offline deploy (venv copy only; wheels are in Git LFS under offline_packages/)
 portable_bundle/

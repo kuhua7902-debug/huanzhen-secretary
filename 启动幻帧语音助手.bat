@@ -1,35 +1,67 @@
 @echo off
 chcp 65001 >nul
-title HuanZhen Voice Assistant - Listening
+setlocal enabledelayedexpansion
+title 幻帧语音助手 - 聆听中
 
 :: ============================================================
-::  HuanZhen Voice Assistant - Quick Launch
-::  OpenWakeWord mode + TTS voice reply
+::  幻帧语音助手 - 快速启动
+::  模式：OpenWakeWord 唤醒 + Edge TTS 语音回复 + 键盘兜底
 ::
-::  Usage: Double-click this .bat file to start
-::  Wake word: "Alexa"
+::  用法：双击本文件即可启动
+::  唤醒词："Alexa"（可在下方 --wake-word 修改）
 ::
-::  P0 Fix: 单实例保护 + 高阈值唤醒 (0.7) + 冷却期 3s
+::  ⚠️ 密钥不写在本文件里：统一从项目根目录 .env 读取。
+::     本文件曾经硬编码过 API Key，请确认已轮换旧密钥。
 :: ============================================================
 
-cd /d D:\about_python\Keji_Nanobot\Keji-agent-main
+:: ── 切换到脚本所在目录（可移植，不再依赖绝对路径）──
+cd /d "%~dp0"
 
-:: ── 检查是否已在运行 ──
-tasklist /fi "imagename eq pythonw.exe" /fo csv 2>nul | findstr /i "voice_tray" >nul
-if %errorlevel% equ 0 (
-    echo [警告] 幻帧语音助手可能已在运行中
-    echo        请检查系统托盘图标，避免重复启动
-    timeout /t 5
-    exit /b
+:: ── 从 .env 加载环境变量 ──
+set "ENV_FILE=%~dp0.env"
+if not exist "%ENV_FILE%" (
+    echo [错误] 未找到 .env 文件：%ENV_FILE%
+    echo        请先复制 .env.example 为 .env 并填写密钥。
+    echo.
+    pause
+    exit /b 1
 )
 
-:: ── Environment Variables ──
-set DEEPSEEK_API_KEY=sk-5b52d8aa490c45cf92db05ebb2919755
-set ZHIPU_API_KEY=7b523889e034473ba38db1682860e34d.pXycW3smbjBJ0wmy
-set GROQ_API_KEY=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
-set DASHSCOPE_API_KEY=sk-ws-H.RXPLEME.WmjJ.MEUCIQCLw8C5F8KxULJG9OpBQgV6tOOvd4DJ9jcofuojWu9-dQIgQPi8_k3GcIq5oEpduasPmenihlKa1S1Hr4pUmowdaNc
+for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+    set "_k=%%a"
+    set "_v=%%b"
+    :: 跳过注释行与空行
+    if not "!_k!"=="" if not "!_k:~0,1!"=="#" (
+        set "_k=!_k: =!"
+        if not "!_k!"=="" set "!_k!=!_v!"
+    )
+)
 
-:: ── Launch Voice Assistant (direct pythonw, no start wrapper) ──
-:: Backend: OpenWakeWord, Wake word: alexa, Keyboard fallback, TTS: edge
+:: ── 检查关键密钥 ──
+if "%DASHSCOPE_API_KEY%"=="" (
+    echo [警告] .env 中未设置 DASHSCOPE_API_KEY —— 视觉模型将不可用
+)
+if "%GROQ_API_KEY%"=="" (
+    echo [警告] .env 中未设置 GROQ_API_KEY —— 语音识别(STT)将不可用
+)
+if "%DEEPSEEK_API_KEY%"=="" if "%ZHIPU_API_KEY%"=="" (
+    echo [警告] .env 中未设置任何对话模型密钥 —— 语音对话将不可用
+)
+
+:: ── 检查虚拟环境 ──
+if not exist "venv\Scripts\pythonw.exe" (
+    echo [错误] 未找到虚拟环境 venv\Scripts\pythonw.exe
+    echo        请先运行 setup_deploy.bat 完成部署。
+    echo.
+    pause
+    exit /b 1
+)
+
+:: ── 启动语音助手 ──
+:: 单实例保护由 voice_tray.py 内部基于 PID 文件实现（见 _check_single_instance）
+:: Backend: openwakeword | Wake word: alexa | 键盘兜底: Ctrl+Alt+V | TTS: edge
 :: oww-threshold 0.7 = 高阈值减少误触发
-venv\Scripts\pythonw.exe voice_tray.py --backend openwakeword --wake-word alexa --keyboard --tts edge --oww-threshold 0.7
+start "" venv\Scripts\pythonw.exe voice_tray.py --backend openwakeword --wake-word alexa --keyboard --tts edge --oww-threshold 0.7
+
+endlocal
+exit /b 0

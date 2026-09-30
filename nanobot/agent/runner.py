@@ -801,7 +801,43 @@ class AgentRunner:
             events.append(event)
             if error is not None and fatal_error is None:
                 fatal_error = error
+
+        # ── 审计上报（统一入口）──
+        # 背景：_run_tool 在 prepare_call 成功时是直接调 tool.execute() 的，
+        # 而审计埋点写在 ToolRegistry.execute() 里，于是"文件读写 / 命令执行 /
+        # 高频业务工具"这类调用完全不留审计记录（只有走 __tool__ 分发的才留）。
+        # 这里按「LLM 实际请求的工具名」统一补一次上报，覆盖全部执行路径。
+        flat_calls = [tc for batch in batches for tc in batch]
+        for tool_call, outcome in zip(flat_calls, tool_results):
+            self._audit_tool_call(tool_call, outcome)
+
         return results, events, fatal_error
+
+    @staticmethod
+    def _audit_tool_call(tool_call: Any, outcome: tuple[Any, dict[str, str], BaseException | None]) -> None:
+        """把一次工具调用写入审计日志（尽力而为，绝不影响主流程）。"""
+        try:
+            from core.security.audit import audit_tool_call
+        except Exception:
+            return  # 审计模块不可用（例如被单独引用时）则静默跳过
+        try:
+            result, event, error = outcome
+            status = str((event or {}).get("status") or "ok")
+            if status == "ok" and isinstance(result, str) and result.startswith("Error"):
+                status = "error"
+            if error is not None and status == "ok":
+                status = "error"
+            preview = str(result if result is not None else "")[:300]
+            audit_tool_call(
+                getattr(tool_call, "name", "") or "",
+                getattr(tool_call, "arguments", None) or {},
+                status=status,
+                error=preview if status == "error" else "",
+                result_preview=preview,
+            )
+        except Exception:
+            # 审计失败不能影响对话
+            pass
 
     async def _run_tool(
         self,

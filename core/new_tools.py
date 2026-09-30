@@ -1308,7 +1308,12 @@ def _verify_sheet(ws, sheet_name: str, expect_rows: int,
             data_rows.append(row)
 
     data_count = len(data_rows)
+    # issues 只放"真正的问题"；notes 放正常的信息性输出。
+    # 修复：此前把「合计[X]: 100.00」「验证通过」这类正常信息也 append 进 issues，
+    # 而函数末尾以 `if issues: return FAIL` 判定，导致只要用了 check_sum
+    # 就永远返回 FAIL —— 包括校验完全通过的情况。
     issues = []
+    notes = []
 
     # 行数检查
     if expect_rows > 0 and data_count != expect_rows:
@@ -1350,7 +1355,7 @@ def _verify_sheet(ws, sheet_name: str, expect_rows: int,
                             v = row[ci]
                             if v is not None:
                                 total += float(v)
-                    issues.append(f"合计[{col_name}]: {total:.2f}")
+                    notes.append(f"合计[{col_name}]: {total:.2f}")
                 except (ValueError, IndexError):
                     issues.append(f"合计检查: 列 '{col_name}' 不存在")
             else:
@@ -1367,13 +1372,13 @@ def _verify_sheet(ws, sheet_name: str, expect_rows: int,
                                 total += float(v)
                     # 期望值是 "-" 或空 → 自动求和（不校验）
                     if expected in ("", "-"):
-                        issues.append(f"自动合计[{col_name}]: {total:.2f}")
+                        notes.append(f"自动合计[{col_name}]: {total:.2f}")
                     else:
                         exp_val = float(expected)
                         if abs(total - exp_val) > 0.01:
                             issues.append(f"合计[{col_name}]不符: 期望 {exp_val:.2f}，实际 {total:.2f}")
                         else:
-                            issues.append(f"合计[{col_name}]验证通过: {total:.2f}")
+                            notes.append(f"合计[{col_name}]验证通过: {total:.2f}")
                 except ValueError:
                     issues.append(f"合计[{col_name}]求和失败: 非数值列?")
                 except IndexError:
@@ -1382,6 +1387,8 @@ def _verify_sheet(ws, sheet_name: str, expect_rows: int,
     summary = f"  Sheet: {sheet_name} | 数据行: {data_count} | 列数: {len(columns)}"
     if columns:
         summary += f" | 列: {', '.join(columns[:8])}"
+    if notes:
+        summary += f"\n  备注: {'; '.join(notes)}"
 
     if issues:
         return f"FAIL [{sheet_name}]: {'; '.join(issues)}\n{summary}"

@@ -62,6 +62,49 @@ class KejiTool(Tool):
     def parameters(self) -> dict[str, Any]:
         return self._schema
 
+    @property
+    def read_only(self) -> bool:
+        """是否为只读工具（无副作用）。
+
+        判定统一交给 core.security.permissions.is_write_tool()，而不是在
+        adapter_tools 里再维护一份名单 —— 之前正是"两处各写一份"导致
+        只读账号仍然可以调用 run_command / GUI 操作等写类工具。
+        引擎的 read_only 同时决定 concurrency_safe（见 nanobot/agent/tools/base.py）。
+        """
+        try:
+            from core.security.permissions import is_write_tool
+
+            return not is_write_tool(self._name)
+        except Exception:
+            # 权限模块不可用时按"可写"保守处理，角色拦截由 RolePermissionHook 兜底
+            return False
+
+    @property
+    def exclusive(self) -> bool:
+        """GUI / 桌面类工具必须独占执行。
+
+        鼠标键盘是整机共享资源，并发执行会互相打断（例如一个在拖拽、
+        另一个在点击）。开启并发执行时这些工具必须单独成批。
+        """
+        return self._name.startswith(
+            (
+                "click_",
+                "type_text",
+                "press_key",
+                "scroll_",
+                "drag_",
+                "screenshot",
+                "wait_for_element",
+                "focus_window",
+                "close_window",
+                "open_application",
+                "run_command",
+                "confirm_dangerous_action",
+                "record_workflow",
+                "replay_workflow",
+            )
+        )
+
     async def execute(self, **kwargs: Any) -> str:
         logger.info("Tool: {} args={}", self._name, str(kwargs)[:200])
         try:
@@ -117,6 +160,19 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
     ("delete_file", "删除文件（需确认）",
      {"path": {"type": "string"}, "confirm": {"type": "boolean", "description": "确认删除"}},
      ["path", "confirm"]),
+    # ── 文件浏览/创建（此前只在旧引擎注册表里存在，Web 路径缺失，
+    #    导致 AI 无法创建文件夹、无法列出/搜索目录。现补齐。──
+    ("create_folder", "创建文件夹（自动创建多级父目录）。路径必须在允许目录内",
+     {"path": {"type": "string", "description": "要创建的文件夹路径"}},
+     ["path"]),
+    ("browse_files", "列出目录内容（文件名、大小、修改时间）",
+     {"path": {"type": "string", "description": "目录路径；留空则列出默认允许目录"}},
+     []),
+    ("search_files", "按文件名模糊搜索文件（递归子目录）",
+     {"pattern": {"type": "string", "description": "文件名关键词或通配符，如 *.docx 或 报表"},
+      "folder": {"type": "string", "description": "搜索起始目录（可选）"},
+      "max_results": {"type": "integer", "description": "最多返回条数，默认 10"}},
+     ["pattern"]),
     ("knowledge_stats", "知识库统计", {}, []),
     ("list_allowed_directories", "列出全局文件沙箱允许访问的目录", {}, []),
 
@@ -128,9 +184,27 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
     # ── 数据处理 ──
     ("analyze_data", "分析CSV/Excel数据，计算统计指标", {"data_source": {"type": "string"}, "column": {"type": "string"}}, []),
     ("format_data", "格式化数据，支持排序/筛选/转置", {"data": {"type": "string"}, "operation": {"type": "string"}}, ["data"]),
-    ("clean_data", "数据清洗", {"data_source": {"type": "string"}}, []),
-    ("convert_data", "格式转换", {"data_source": {"type": "string"}, "target_format": {"type": "string"}}, []),
-    ("etl_pipeline", "ETL数据处理", {"source": {"type": "string"}, "operations": {"type": "string"}}, []),
+    # 注意：以下三个工具的 schema 参数名必须与 core/filetools_organize.py 里的
+    # 真实函数签名一致。此前写成 data_source / operations，导致调用时
+    # TypeError: unexpected keyword argument，工具在 Web 路径上完全不可用。
+    ("clean_data", "数据清洗（去空行、去重、填充空值、trim）。source 为文件路径或内联CSV文本",
+     {"source": {"type": "string", "description": "数据源：CSV/Excel 文件路径，或内联文本"},
+      "operations": {"type": "string", "description": "操作，逗号分隔：trim/dropna/dedupe/fill 等"},
+      "columns": {"type": "string", "description": "仅对这些列生效，逗号分隔（可选）"},
+      "fill_value": {"type": "string", "description": "填充空值用的值，默认 N/A"},
+      "output_format": {"type": "string", "description": "输出形式：table(默认)/csv"}},
+     ["source"]),
+    ("convert_data", "格式转换（csv/xlsx/json/html 互转）",
+     {"source": {"type": "string", "description": "源数据文件路径"},
+      "target_format": {"type": "string", "description": "目标格式：csv/xlsx/json/html"},
+      "output_path": {"type": "string", "description": "输出文件路径（可选，默认桌面）"}},
+     ["source", "target_format"]),
+    ("etl_pipeline", "ETL 数据处理管道（多步清洗/转换）",
+     {"source": {"type": "string", "description": "源数据文件路径"},
+      "steps": {"type": "string", "description": "步骤描述，如 'dedupe,fillna,rename'"},
+      "output_format": {"type": "string", "description": "输出形式：table(默认)/csv/xlsx"},
+      "output_path": {"type": "string", "description": "输出文件路径（可选）"}},
+     ["source"]),
 
     # ── 知识库 ──
     ("query_knowledge", "知识库语义检索", {"query": {"type": "string"}}, ["query"]),
@@ -139,7 +213,13 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
 
     # ── OCR ──
     ("ocr_image", "图片文字识别", {"image_path": {"type": "string"}}, ["image_path"]),
-    ("ocr_pdf", "PDF文字识别", {"pdf_path": {"type": "string"}}, ["pdf_path"]),
+    # 注意：真实签名是 ocr_pdf(path=..., image_path=..., lang=..., pages=...)。
+    # 此前 schema 写成 pdf_path，调用必然 TypeError。
+    ("ocr_pdf", "PDF文字识别（逐页OCR）",
+     {"path": {"type": "string", "description": "PDF 文件路径"},
+      "lang": {"type": "string", "description": "识别语言，默认 ch_sim+eng"},
+      "pages": {"type": "string", "description": "页码范围，如 '1-5' 或 '1,3,7'（默认全部）"}},
+     ["path"]),
     ("ocr_batch", "批量OCR识别", {"directory": {"type": "string"}}, ["directory"]),
 
     # ── 压缩包 ──
@@ -148,9 +228,22 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
     ("create_archive", "创建压缩包", {"sources": {"type": "string"}, "output_path": {"type": "string"}}, ["sources", "output_path"]),
 
     # ── 邮件 ──
-    ("parse_email", "解析邮件文件", {"file_path": {"type": "string"}}, ["file_path"]),
-    ("batch_parse_emails", "批量解析邮件", {"directory": {"type": "string"}}, ["directory"]),
-    ("extract_email_attachments", "提取邮件附件", {"file_path": {"type": "string"}, "output_dir": {"type": "string"}}, ["file_path"]),
+    # 注意：真实签名是 parse_email(path, extract_body, max_body_length)。
+    # 此前 schema 写成 file_path，调用必然 TypeError。
+    ("parse_email", "解析邮件文件（.eml / .msg）",
+     {"path": {"type": "string", "description": ".eml 或 .msg 文件路径"},
+      "extract_body": {"type": "boolean", "description": "是否提取正文，默认 true"},
+      "max_body_length": {"type": "integer", "description": "正文最大字符数，默认 3000"}},
+     ["path"]),
+    # 注意：真实签名是 extract_email_attachments(path, output_dir)。
+    ("extract_email_attachments", "提取邮件附件到指定目录",
+     {"path": {"type": "string", "description": ".eml 或 .msg 文件路径"},
+      "output_dir": {"type": "string", "description": "附件保存目录（可选）"}},
+     ["path"]),
+    ("batch_parse_emails", "批量解析目录下的邮件",
+     {"directory": {"type": "string", "description": "邮件所在目录"},
+      "recursive": {"type": "boolean", "description": "是否递归子目录，默认 false"}},
+     ["directory"]),
 
     # ── 文件整理 ──
     ("organize_files", "按类型自动分类整理文件", {"source_dir": {"type": "string"}, "mode": {"type": "string"}}, []),
@@ -372,6 +465,23 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
      "列出所有已保存的工作流。返回名称、描述、步骤数、创建时间、变量列表。"
      "示例：list_workflows()",
      {}, []),
+
+    # ── 工作流删除/编辑（此前只在旧引擎注册表里存在，Web 路径缺失 ──
+    ("delete_workflow",
+     "删除已保存的工作流（需 confirm=true 才真正删除，删除前会备份到 .trash）。"
+     "示例：delete_workflow('calc_test', confirm=true)",
+     {"name": {"type": "string", "description": "工作流名称"},
+      "confirm": {"type": "boolean", "description": "必须传 true 才执行删除"}},
+     ["name"]),
+
+    ("edit_workflow",
+     "编辑已有工作流的步骤（append/insert/delete/replace）。"
+     "示例：edit_workflow('calc_test', op='append', step='{\"action\":\"press_key\",\"params\":{\"key\":\"enter\"}}')",
+     {"name": {"type": "string", "description": "工作流名称"},
+      "op": {"type": "string", "description": "操作：append/insert/delete/replace"},
+      "position": {"type": "integer", "description": "位置（insert/delete/replace 用，从 0 开始）"},
+      "step": {"type": "string", "description": "步骤 JSON 字符串（append/insert/replace 用）"}},
+     ["name", "op"]),
 ]
 
 
