@@ -52,6 +52,36 @@ WAV_SAMPLE_WIDTH = 2  # 16-bit
 
 
 # ---------------------------------------------------------------------------
+# GUI 紧急停止（语音"停止"指令的刹车）
+# ---------------------------------------------------------------------------
+
+def _trigger_gui_abort(reason: str) -> bool:
+    """触发进程级 GUI 紧急停止标志（core.gui_abort.trigger_abort）。
+
+    为什么需要：`agent.cancel()` 只设置 CoreAgent 的 cancel_event，
+    正在执行的 pyautogui.click / typewrite / drag 等 GUI 操作不会中途响应它，
+    会继续把动作做完。core.gui_abort 提供的全局标志才是 GUI 工具在每次
+    操作前都会检查的刹车，配合 cancel_event 形成多层制动。
+
+    防御式延迟导入：gui_abort 缺失/异常时语音模块仍能正常加载运行，
+    只记一条 debug 日志，不影响其他停止逻辑。
+
+    返回：True 表示成功触发，False 表示 gui_abort 不可用或触发失败。
+    """
+    try:
+        from core.gui_abort import trigger_abort
+    except ImportError as e:
+        logger.debug("core.gui_abort 不可用，跳过 GUI 紧急停止: %s", e)
+        return False
+    try:
+        trigger_abort(reason=reason)
+        return True
+    except Exception as e:
+        logger.debug("触发 GUI 紧急停止失败: %s", e)
+        return False
+
+
+# ---------------------------------------------------------------------------
 # 音频录制器
 # ---------------------------------------------------------------------------
 
@@ -538,12 +568,43 @@ class _OpenWakeWordDetector(_BaseDetector):
             )
             self.keyword = "alexa"
 
+        # 主路径：tflite 推理框架
+        if self._init_with_framework("tflite"):
+            logger.info("OpenWakeWord 检测器初始化成功（唤醒词: %s）", self.keyword)
+            return True
+
+        # 回退路径：ONNX 推理框架（必须同样完成"模型 + 音频流"的完整初始化）
+        logger.info("尝试使用 ONNX 推理框架...")
+        if self._init_with_framework("onnx"):
+            logger.info("OpenWakeWord (ONNX) 初始化成功（唤醒词: %s）", self.keyword)
+            return True
+
+        # 两条路径都不可用 → 必须返回 False，让调用方走键盘兜底，
+        # 绝不能返回 True（旧实现 ONNX 分支只重建了模型没打开音频流却返回 True，
+        # listen() 因 self._stream 为空而永远返回 False，唤醒检测静默死亡）。
+        logger.error(
+            "OpenWakeWord 检测器初始化失败（tflite 与 ONNX 推理框架均不可用），"
+            "唤醒词检测不可用！请改用键盘兜底（--keyboard，快捷键 Ctrl+Alt+V）"
+            "或切换唤醒后端（--backend vad）。"
+        )
+        self.cleanup()
+        return False
+
+    def _init_with_framework(self, framework: str) -> bool:
+        """用指定推理框架初始化：创建唤醒模型 + 打开麦克风音频流。
+
+        只有「模型」与「音频流」都真正就绪才返回 True。
+        失败时清理半初始化资源（残留的 PyAudio 句柄会导致下次打开设备失败）。
+
+        参数：
+            framework: "tflite" 或 "onnx"
+        """
         try:
             from openwakeword.model import Model
 
             self._oww_model = Model(
                 wakeword_models=[self.keyword],
-                inference_framework="tflite",
+                inference_framework=framework,
             )
 
             import pyaudio
@@ -558,25 +619,19 @@ class _OpenWakeWordDetector(_BaseDetector):
                 input_device_index=self.device_index,
                 frames_per_buffer=self._frame_length,
             )
-            logger.info("OpenWakeWord 检测器初始化成功（唤醒词: %s）", self.keyword)
+
+            # 双保险：模型和音频流缺一不可，否则 listen() 必然失效
+            if not self._oww_model or not self._stream:
+                logger.error("OpenWakeWord（%s）初始化不完整：模型或音频流缺失", framework)
+                self.cleanup()
+                return False
+
             return True
 
         except Exception as e:
-            logger.error("OpenWakeWord 检测器初始化失败: %s", e)
-            # 尝试 ONNX 回退
-            try:
-                logger.info("尝试使用 ONNX 推理框架...")
-                from openwakeword.model import Model
-                self._oww_model = Model(
-                    wakeword_models=[self.keyword],
-                    inference_framework="onnx",
-                )
-                logger.info("OpenWakeWord (ONNX) 初始化成功")
-                return True
-            except Exception as e2:
-                logger.error("OpenWakeWord ONNX 回退也失败: %s", e2)
-                self.cleanup()
-                return False
+            logger.error("OpenWakeWord（%s）初始化失败: %s", framework, e)
+            self.cleanup()
+            return False
 
     def listen(self, timeout: float = 0.1) -> bool:
         """监听一帧，检测唤醒词"""
@@ -987,6 +1042,11 @@ class VoiceListener:
                         if self._chat_cancel_event and self._chat_thread and self._chat_thread.is_alive():
                             self._chat_cancel_event.set()
                             self._agent.cancel()  # 直接触发 CoreAgent 取消
+                            # ⭐ 同步触发进程级 GUI 紧急停止：
+                            # agent.cancel() 只设 CoreAgent 的 cancel_event，
+                            # 正在执行的 pyautogui 点击/输入不会中断，
+                            # 必须靠 gui_abort 全局标志让 GUI 工具立刻刹车。
+                            _trigger_gui_abort("语音指令「停止」")
                             logger.info("检测到停止关键词'%s'，已取消当前任务", text)
                             if self.on_response:
                                 try:
@@ -1114,6 +1174,9 @@ class VoiceListener:
                         if self._chat_cancel_event and self._chat_thread and self._chat_thread.is_alive():
                             self._chat_cancel_event.set()
                             self._agent.cancel()
+                            # ⭐ 同上：同步触发进程级 GUI 紧急停止，
+                            # 让正在执行的 GUI 自动化动作立即中止
+                            _trigger_gui_abort("语音指令「停止」（键盘模式）")
                             logger.info("检测到停止关键词，已取消当前任务")
                         if self.on_response:
                             self.on_response("已停止当前任务")

@@ -491,12 +491,39 @@ def type_text(text: str, interval: float = 0.0) -> str:
         if any(ord(c) > 127 for c in text):
             try:
                 import pyperclip
-                pyperclip.copy(text)
-                pyautogui.hotkey("ctrl", "v")
-                logger.info("type_text (paste): %d chars", len(text))
-                _result_str = f"已通过剪贴板粘贴输入 {len(text)} 个字符"
             except ImportError:
                 return "错误：输入中文需要 pyperclip，请执行 py -3.12 -m pip install pyperclip"
+
+            # ⭐ 剪贴板保护：旧实现直接 pyperclip.copy(text) 覆盖剪贴板，粘贴完就
+            #    不管了，用户原先复制的内容被永久破坏（图片/文件等内容尤甚）。
+            #    这里先保存原内容，粘贴后必须在 finally 里恢复；
+            #    若剪贴板不可读或内容非文本（paste() 拿到空串），则放弃恢复
+            #    （避免用空串把用户的图片等非文本内容清掉），只记 debug 日志，
+            #    绝不影响本次输入结果。
+            saved_clip = ""
+            clip_saved = False
+            try:
+                saved_clip = pyperclip.paste()
+                clip_saved = isinstance(saved_clip, str) and saved_clip != ""
+            except Exception as e:
+                logger.debug("读取剪贴板失败，跳过恢复: %s", e)
+
+            try:
+                pyperclip.copy(text)
+                pyautogui.hotkey("ctrl", "v")
+                # 粘贴是异步的：目标程序收到 Ctrl+V 后还要读取剪贴板，
+                # 立刻恢复会让它粘到旧内容，故留一点时间再还原
+                time.sleep(0.15)
+                logger.info("type_text (paste): %d chars", len(text))
+                _result_str = f"已通过剪贴板粘贴输入 {len(text)} 个字符"
+            finally:
+                if clip_saved:
+                    try:
+                        pyperclip.copy(saved_clip)
+                    except Exception as e:
+                        logger.debug("恢复剪贴板失败（已忽略）: %s", e)
+                else:
+                    logger.debug("剪贴板为空或非文本内容，跳过恢复")
         else:
             # 纯 ASCII 用 typewrite
             if interval > 0:

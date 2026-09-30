@@ -41,28 +41,79 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 PID_FILE = os.path.join(tempfile.gettempdir(), "keji_voice_tray.pid")
 
 
+def _is_process_running(pid: int) -> bool:
+    """用 Win32 API 判断指定 PID 的进程是否仍在运行。
+
+    旧实现的三个缺陷（本次修复重点）：
+    1. 先 CloseHandle(handle) 再 GetExitCodeProcess(handle, ...)：句柄已经关闭，
+       读到的退出码无效（恒为 0），永远不等于 259(STILL_ACTIVE)，
+       于是单实例保护从未生效，可以重复启动多个语音助手。
+       → 现在必须在关闭句柄之前读取退出码，且句柄用 finally 保证只关闭一次。
+    2. 未声明 argtypes/restype：64 位 Windows 上 OpenProcess 返回的 HANDLE 会被
+       ctypes 当作 32 位 int 截断，句柄失效。
+       → 现在显式声明 wintypes.HANDLE / DWORD / BOOL 签名。
+    3. 使用 PROCESS_QUERY_INFORMATION(0x0400)：对"属于其他用户/更高权限"的进程会
+       直接失败（拒绝访问），从而误判为"没在运行"。
+       → 改用 PROCESS_QUERY_LIMITED_INFORMATION(0x1000)，权限要求更低更可靠。
+
+    非 Windows 或 ctypes 不可用时返回 False（即不做单实例拦截，保持原有宽松行为）。
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return False
+
+    # WinDLL 仅 Windows 存在；不存在说明当前平台不支持该检查
+    win_dll = getattr(ctypes, "WinDLL", None)
+    if win_dll is None:
+        return False
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+
+    try:
+        kernel32 = win_dll("kernel32", use_last_error=True)
+        # 显式声明签名：防止 64 位句柄被截断成 32 位，也防止参数被错误装箱
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid)
+        )
+        if not handle:
+            # 打不开：进程不存在，或无权打开（后者极少见，按"未运行"处理）
+            return False
+        try:
+            # ⭐ 必须在 CloseHandle 之前读退出码（旧代码顺序反了，导致判断永远为假）
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == STILL_ACTIVE
+        finally:
+            # 保证句柄恰好关闭一次，不泄漏内核对象
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
 def _check_single_instance():
     """确保只有一个幻帧语音助手实例在运行"""
     if os.path.exists(PID_FILE):
         try:
             with open(PID_FILE, "r", encoding="utf-8") as f:
                 old_pid = int(f.read().strip())
-            import ctypes
-            # Windows: 用 PROCESS_QUERY_INFORMATION 检查进程是否存在
-            PROCESS_QUERY_INFORMATION = 0x0400
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, old_pid)
-            if handle:
-                kernel32.CloseHandle(handle)
-                # 进程还在运行
-                exit_code = ctypes.c_ulong()
-                kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-                if exit_code.value == 259:  # STILL_ACTIVE
-                    print(f"❌ 幻帧语音助手已在运行中 (PID: {old_pid})")
-                    print("   请先退出旧实例再启动")
-                    sys.exit(1)
         except Exception:
-            pass  # PID 文件无效，继续启动
+            old_pid = 0  # PID 文件无效，继续启动
+
+        if old_pid and old_pid != os.getpid() and _is_process_running(old_pid):
+            print(f"❌ 幻帧语音助手已在运行中 (PID: {old_pid})")
+            print("   请先退出旧实例再启动")
+            sys.exit(1)
 
     with open(PID_FILE, "w", encoding="utf-8") as f:
         f.write(str(os.getpid()))

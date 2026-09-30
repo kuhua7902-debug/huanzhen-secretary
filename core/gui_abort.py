@@ -51,6 +51,57 @@ def clear_abort() -> None:
     _abort_flag.clear()
 
 
+def reset_if_stale(max_age_seconds: float = 300.0) -> bool:
+    """【陈旧停止标志自愈】只清除「已经过期」的停止标志，未过期则原样保留。
+
+    背景（为什么需要这个函数）：
+        本模块的停止标志是进程级单例（全局 Event），目前只有"开始新一轮
+        流式对话"时会调用 clear_abort()。如果某次停止之后没有新对话来清理
+        （例如用户点了停止就直接关掉对话、语音说了"停止"后不再说话、
+        或任务线程异常退出），标志会永远保持 True，于是之后**所有** GUI 工具
+        都只会返回"操作已中止"，表现为「GUI 自动化功能永久失效」。
+        调用方可以在合适的时机（如每个新任务开始前、或工具执行前）调用
+        本函数做一次"过期即清除"的自愈，而不会误清掉用户刚刚发出的停止指令。
+
+    行为：
+        - 未触发停止标志          → 返回 False（无操作）
+        - 已触发且距今 <= max_age → 返回 False（保留标志，尊重用户刚刚的停止指令）
+        - 已触发且距今 >  max_age → 清除标志，返回 True
+        触发时间取 trigger_abort() 记录的 _abort_time；若标志已设置但时间戳
+        异常（为 0），视为陈旧并清除。
+
+    注意：与 clear_abort() 保持一致，本函数**只清标志**，
+    _abort_time / _abort_reason 会保留（供 get_abort_info() 查日志），
+    下次 trigger_abort() 会覆盖它们。
+
+    参数：
+        max_age_seconds: 停止标志的最长有效时长（秒），默认 300 秒（5 分钟）。
+                         传 0 表示清除一切非本瞬间设置的标志（激进模式）。
+
+    返回：True 表示本次调用清除了过期标志，False 表示未清除。
+
+    兼容性：本函数为新增 API，不改变 trigger_abort / clear_abort /
+    is_aborted / get_abort_info / wait_for_abort_or_timeout 的任何既有行为。
+    """
+    if not _abort_flag.is_set():
+        return False
+
+    try:
+        max_age = float(max_age_seconds)
+    except (TypeError, ValueError):
+        max_age = 300.0
+    if max_age < 0:
+        max_age = 0.0
+
+    # 时间戳为 0（异常情况）时视为无限陈旧
+    age = (time.time() - _abort_time) if _abort_time else float("inf")
+    if age <= max_age:
+        return False
+
+    _abort_flag.clear()
+    return True
+
+
 def is_aborted() -> bool:
     """检查是否已触发紧急停止。
 

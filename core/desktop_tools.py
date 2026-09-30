@@ -210,7 +210,7 @@ def _resolve_app_path(app_name: str) -> str | None:
         found = shutil.which(exe)
         if found:
             return found
-        return exe  # 返回名称，让 start 命令去查找
+        return exe  # 返回名称，后续由 App Paths 注册表 / os.startfile 解析（不再经过 cmd）
 
     # 3. 尝试直接用 which 查找
     found = shutil.which(name)
@@ -219,6 +219,166 @@ def _resolve_app_path(app_name: str) -> str | None:
 
     # 4. 返回原始名称，交给系统处理
     return name
+
+
+# 浏览器别名/进程名（用于判断 args 里的网址应该交给谁打开）
+_BROWSER_NAMES = {
+    "chrome", "chrome.exe",
+    "msedge", "msedge.exe", "edge", "edge.exe",
+    "firefox", "firefox.exe",
+    "iexplore", "iexplore.exe", "ie",
+    "brave", "brave.exe", "opera", "opera.exe",
+    "360se", "360se.exe", "qqbrowser", "qqbrowser.exe",
+    "sogouexplorer", "sogouexplorer.exe",
+}
+
+
+def _lookup_windows_app_path(exe_name: str) -> str | None:
+    """在 Windows 注册表 App Paths 中查找可执行文件完整路径，找不到返回 None。
+
+    为什么需要：去掉 `cmd /c start` 之后，"chrome.exe" 这类「已安装但不在 PATH」
+    的裸名字不再由 shell 帮忙解析。App Paths 正是 Windows 记录这类程序的官方
+    注册表位置（ShellExecute / start 内部也用它），这里直接查注册表，
+    既保留原有可用性，又完全不经过 cmd.exe。
+    """
+    if not _IS_WINDOWS:
+        return None
+
+    name = os.path.basename((exe_name or "").strip().strip('"').strip("'"))
+    if not name:
+        return None
+    if not name.lower().endswith(".exe"):
+        name += ".exe"
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    subkey = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + name
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                path, _ = winreg.QueryValueEx(key, None)
+            if path and os.path.isfile(path):
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def _is_launchable_exe(path: str) -> bool:
+    """判断路径能否被直接 CreateProcess 启动（真实 .exe/.com 文件或 PATH 中的命令）。
+
+    返回 False 说明必须交给系统文件关联（os.startfile）打开，
+    例如文档、URI（ms-settings:）、.lnk 快捷方式、.bat 脚本等。
+    """
+    if not path:
+        return False
+    if os.path.isfile(path):
+        return path.lower().endswith((".exe", ".com"))
+    return bool(shutil.which(path))
+
+
+def _split_app_args(args: str) -> list[str]:
+    """把 args 字符串拆成参数列表（只做分词，绝不解释 shell 元字符）。
+
+    规则：空白分隔，双引号内的空白保留（便于传带空格的路径）。
+    反斜杠不做转义处理（Windows 路径如 D:\\文档\\报告.docx 原样保留）。
+
+    安全说明：本函数是纯分词器，& | ^ > % 等字符只会成为参数里的普通字符，
+    随后以列表形式直接传给 CreateProcess（shell=False），
+    不具备"注入第二条命令"的能力——这是旧实现 `cmd /c start` 的漏洞根源。
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    for ch in args or "":
+        if ch == '"':
+            in_quotes = not in_quotes
+            continue
+        if ch.isspace() and not in_quotes:
+            if current:
+                tokens.append("".join(current))
+                current = []
+            continue
+        current.append(ch)
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _is_url(value: str) -> bool:
+    """判断字符串是否是可交给默认程序打开的网址。"""
+    return (value or "").strip().lower().startswith(
+        ("http://", "https://", "file://", "ftp://")
+    )
+
+
+def _is_browser_app(app_name: str, exe_path: str) -> bool:
+    """判断目标程序是否为浏览器（用于决定网址交给谁打开）。"""
+    names = {
+        os.path.basename((app_name or "").strip()).lower(),
+        os.path.basename((exe_path or "").strip()).lower(),
+    }
+    return bool(names & _BROWSER_NAMES)
+
+
+def _is_console_exe(path: str) -> bool:
+    """读取 PE 头判断是否为控制台程序（IMAGE_SUBSYSTEM_WINDOWS_CUI=3）。
+
+    为什么需要：GUI 程序要用 CREATE_NO_WINDOW/DETACHED_PROCESS 静默启动，
+    而 cmd.exe / powershell.exe 这类控制台程序必须分配到新控制台窗口，
+    否则窗口不会出现，用户会以为"点了没反应"（比旧的 start 行为倒退）。
+    """
+    try:
+        import struct
+        with open(path, "rb") as f:
+            if f.read(2) != b"MZ":
+                return False
+            f.seek(0x3C)
+            e_lfanew = struct.unpack("<I", f.read(4))[0]
+            f.seek(e_lfanew)
+            if f.read(4) != b"PE\0\0":
+                return False
+            # IMAGE_FILE_HEADER(20) 之后是 OptionalHeader，Subsystem 位于其 0x44 处
+            f.seek(e_lfanew + 24 + 0x44)
+            subsystem = struct.unpack("<H", f.read(2))[0]
+        return subsystem == 3
+    except Exception:
+        return False
+
+
+def _launch_executable(exe_path: str, argv: list[str]) -> None:
+    """直接启动可执行文件本体，不经过任何 shell。
+
+    安全说明：参数以列表 + shell=False 传递，Windows 按 CreateProcess 的标准规则
+    拼装命令行，argv 里的 & | ^ > %VAR% 等字符只是普通字符，不存在 cmd.exe
+    二次解析造成的命令注入。
+    """
+    # 双保险：裸名字（不带路径）先解析成绝对路径
+    # —— CreateProcess 的 lpApplicationName 只给部分名称时不保证搜索 PATH
+    if not os.path.isfile(exe_path):
+        resolved = shutil.which(exe_path)
+        if resolved:
+            exe_path = resolved
+
+    if _is_console_exe(exe_path):
+        # 控制台程序（cmd/powershell 等）分配新控制台窗口，保持旧的 start 体验
+        creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    else:
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        )
+
+    subprocess.Popen(
+        [exe_path, *argv],
+        shell=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
 
 
 def _wait_for_window(title: str, timeout: float = 12.0, poll_interval: float = 0.3) -> bool:
@@ -310,41 +470,43 @@ def open_application(app_name: str, args: str = "", wait_window: str = "") -> st
     if not exe_path:
         return f"错误：找不到程序「{app_name}」"
 
+    # 补充解析：PATH 里找不到时，再查 Windows App Paths 注册表
+    # （过去 `start` 命令就是靠它解析 chrome.exe 这类裸名字的）
+    if _IS_WINDOWS and not os.path.isfile(exe_path):
+        registered = _lookup_windows_app_path(exe_path)
+        if registered:
+            logger.info("open_application: %s 经 App Paths 解析为 %s", app_name, registered)
+            exe_path = registered
+
     try:
         if _IS_WINDOWS:
-            # 如果 exe_path 不是有效文件路径，当做系统命令用 subprocess 启动
-            if not os.path.isfile(exe_path) and not shutil.which(exe_path):
-                # 不是文件，也不是 PATH 里的命令 → 用 start 命令直接启动
-                logger.info(f"open_application: '{app_name}' 不是文件路径，用 start 命令尝试")
-                cmd_list = ["cmd", "/c", "start", "", app_name]
-                if args:
-                    cmd_list.append(args)
-                subprocess.Popen(
-                    cmd_list,
-                    shell=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    | getattr(subprocess, "DETACHED_PROCESS", 0),
-                )
-            elif args:
-                # 带参数启动：用 subprocess.Popen
-                # 使用 start 命令在后台启动，不阻塞
-                cmd_list = ["cmd", "/c", "start", "", exe_path]
-                # 参数按空格分割后追加
-                if args:
-                    cmd_list.append(args)
-                subprocess.Popen(
-                    cmd_list,
-                    shell=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    | getattr(subprocess, "DETACHED_PROCESS", 0),
-                )
+            # ── 安全修复：彻底移除 `cmd /c start "" <app> <args>` ──
+            # 旧实现把模型可控的 args 拼进 cmd.exe 命令行，而 cmd 会二次解析
+            # 命令行，args 里的 & | ^ > %VAR% 等元字符能注入并执行第二条命令，
+            # 同时绕过了 run_command 的 _DANGER_PATTERNS 黑名单（黑名单只在
+            # run_command 内部生效）。
+            # 现在两种情形都不经过 shell：
+            #   A. 能解析成真实可执行文件 → Popen([exe, *argv], shell=False) 直接启动；
+            #   B. 需要系统文件关联解析的（文档 / URI / 快捷方式 / 未解析的裸名字）
+            #      → os.startfile(...)，它走 ShellExecute，同样不经过 cmd.exe。
+            if _is_launchable_exe(exe_path):
+                _launch_executable(exe_path, _split_app_args(args))
+            elif args and _is_url(args) and _is_browser_app(app_name, exe_path):
+                # 浏览器没解析到具体路径、但参数是网址 → 交给默认浏览器打开
+                # （与旧行为 `start "" <浏览器> <网址>` 的最终效果一致）
+                os.startfile(args)
+                logger.info("open_application: 用默认程序打开网址 %s", args)
             else:
-                # 不带参数：用 os.startfile 最简单
+                # 文档 / 文件关联 / URI（如 ms-settings:）/ .lnk / .bat
+                # os.startfile 不支持附加参数（它只有一个路径参数），
+                # 因此若传了参数只能忽略并记警告，绝不退回 cmd 拼接
+                if args:
+                    logger.warning(
+                        "open_application: 「%s」需由系统关联打开，无法安全透传参数，已忽略：%s",
+                        app_name, args,
+                    )
                 os.startfile(exe_path)
+                logger.info("open_application: 用文件关联打开 %s", exe_path)
         else:
             cmd_list = [exe_path]
             if args:

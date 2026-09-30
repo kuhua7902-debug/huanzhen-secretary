@@ -226,9 +226,77 @@ def _extract_zip(path: str, output_dir: str, password: str = "") -> str:
 
 def _extract_tar(path: str, output_dir: str) -> str:
     with tarfile.open(path, "r") as tf:
-        tf.extractall(output_dir)
         total = len(tf.getmembers())
+        _extract_tar_members_safely(tf, output_dir)
     return f"✅ 解压完成！\n文件: {path}\n目标: {output_dir}\n共 {total} 项"
+
+
+def _extract_tar_members_safely(tf: tarfile.TarFile, output_dir: str) -> None:
+    """安全解压 tar 的全部成员（防路径穿越 / 任意文件写入）。
+
+    安全漏洞说明（修复前）：
+        `tf.extractall(output_dir)` 完全信任压缩包内的成员名。恶意 tar 里只要
+        含有 `../../Windows/System32/x.dll` 之类的成员，或一个指向目标目录之外
+        的符号链接，就能把文件写到 output_dir 之外，从而绕过 core.path_policy
+        的沙箱限制，实现任意文件写入 / 覆盖。
+    修复方式：
+        Python 3.12+ 使用官方安全过滤器 filter="data"：它会拒绝绝对路径、
+        拒绝解析后逃出目标目录的成员，并跳过符号链接、硬链接与设备文件。
+        为了兼容不支持 filter 关键字的旧解释器（会抛 TypeError），
+        额外提供手写的安全解压回退（保留旧版 Python 上的同等防护）。
+    """
+    filter_error_cls = getattr(tarfile, "FilterError", None)
+
+    try:
+        # Python 3.12+：官方 data 过滤器（同时消除 tarfile 的 DeprecationWarning）
+        tf.extractall(output_dir, filter="data")
+        return
+    except TypeError:
+        # 旧版 Python 不支持 filter 关键字 → 退回到手写安全解压
+        pass
+    except Exception as e:
+        if filter_error_cls is not None and isinstance(e, filter_error_cls):
+            # 压缩包含不安全成员（绝对路径 / 路径穿越 / 外部链接 / 设备文件）
+            raise ValueError(
+                f"压缩包包含不安全成员，已拒绝解压（防路径穿越）：{str(e)[:200]}"
+            ) from e
+        raise
+
+    _extract_tar_members_manually(tf, output_dir)
+
+
+def _extract_tar_members_manually(tf: tarfile.TarFile, output_dir: str) -> None:
+    """手写安全解压（仅用于不支持 filter="data" 的旧解释器）。
+
+    规则：
+      1. 拒绝绝对路径与带盘符的路径（/etc/x、C:\\x）——它们会绕过目标目录；
+      2. 拒绝解析后逃出 output_dir 的成员（../ 路径穿越）；
+      3. 跳过符号链接/硬链接/设备文件（链接会指向目标目录之外，等同于穿越）。
+    """
+    base = os.path.realpath(output_dir)
+    base_prefix = base + os.sep
+
+    safe_members = []
+    for member in tf.getmembers():
+        name = member.name or ""
+
+        # 1) 绝对路径 / 盘符路径
+        if os.path.isabs(name) or (len(name) > 1 and name[1] == ":"):
+            raise ValueError(f"压缩包包含绝对路径成员，已拒绝解压：{name}")
+
+        # 2) 解析后的真实路径必须仍在 output_dir 内
+        target = os.path.realpath(os.path.join(base, name))
+        if target != base and not target.startswith(base_prefix):
+            raise ValueError(f"压缩包包含路径穿越成员，已拒绝解压：{name}")
+
+        # 3) 链接与设备文件直接跳过（不报错，避免影响正常压缩包的其他成员）
+        if member.issym() or member.islnk() or member.isdev():
+            continue
+
+        safe_members.append(member)
+
+    for member in safe_members:
+        tf.extract(member, base)
 
 
 def _extract_7z(path: str, output_dir: str, password: str = "") -> str:
