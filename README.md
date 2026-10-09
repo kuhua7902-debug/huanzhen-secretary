@@ -100,6 +100,7 @@ HUANZHEN_ADMIN_PASSWORD=你想设置的管理员密码
 
 | 文件 | 用途 |
 |------|------|
+| **`安装.bat`** | **一键安装**：检查 Python/Git → 装依赖 → 跑环境自检 → 建桌面快捷方式 → 告诉你下一步填什么配置 |
 | `setup_deploy.bat` / `一键部署.bat` | 新机安装 Python 虚拟环境与依赖（调用 `scripts/deploy.ps1`） |
 | `launch_huanzhen.bat` / `启动幻帧.bat` | 后台启动服务并打开网页（无控制台窗口） |
 | `run_server.bat` / `运行服务.bat` | 带黑窗启动（排错时用，日志直接打印在窗口里） |

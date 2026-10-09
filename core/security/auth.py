@@ -32,6 +32,9 @@ _DEFAULT_PUBLIC_PREFIXES = (
     "/api/security/status",
     "/api/auth/login",
     "/api/work",
+    # 首次配置状态：登录前也要能看（只返回"是否已配置"，不含任何密钥值），
+    # 否则新用户会在登录页卡住却不知道"还差什么没配"。
+    "/api/setup/status",
 )
 
 

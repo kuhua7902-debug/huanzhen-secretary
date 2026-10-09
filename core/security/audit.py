@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,24 @@ class AuditLogger:
         if enabled:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    @contextmanager
+    def exclusive(self):
+        """独占写入窗口。
+
+        归档/轮转审计日志需要"读出全部内容 → 写回保留部分"，期间若有新记录写入
+        就会被覆盖丢失。用法：
+
+            with get_audit_logger().exclusive():
+                ... 重写 audit.jsonl ...
+
+        服务未运行时（命令行清理）拿不到这把锁，调用方需自行判断。
+        """
+        self._lock.acquire()
+        try:
+            yield
+        finally:
+            self._lock.release()
+
     def _write(self, record: dict[str, Any]) -> None:
         if not self.enabled:
             return
@@ -49,7 +68,7 @@ class AuditLogger:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         try:
-            from core.database.db import get_db
+            from core.database.db import get_db  # noqa: PLC0415
             get_db().log_audit_event(
                 event_type=record.get("event_type", ""),
                 actor=record.get("actor", "api"),

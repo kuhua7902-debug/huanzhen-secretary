@@ -67,6 +67,12 @@ export const systemDiagnostics = (deep) =>
   api('/api/system/diagnostics' + (deep ? '?deep=1' : ''))
 export const systemBackups = () => api('/api/system/backups')
 export const systemBackupNow = () => api('/api/system/backup', { method: 'POST' })
+export const systemRetentionPreview = () => api('/api/system/retention/preview')
+export const systemRetentionRun = () => api('/api/system/retention', { method: 'POST' })
+
+/* 首次配置向导（状态接口公开，保存仅管理员） */
+export const setupStatus = () => api('/api/setup/status')
+export const saveSetupEnv = (values) => api('/api/setup/env', { method: 'POST', body: { values } })
 /** 登录前首页用的公开概览（仅计数） */
 export const publicOverview = () => api('/api/public/overview')
 

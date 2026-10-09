@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   listSkills, listTools, mcpServers, mcpStatus, modelsBalance,
-  systemBackupNow, systemDiagnostics,
+  saveSetupEnv, setupStatus, systemBackupNow, systemDiagnostics,
+  systemRetentionPreview, systemRetentionRun,
 } from './api.js'
 import { FONT_SCALES, PRESETS, applyAppearance, readImageFile, saveAppearance } from './theme.js'
 
@@ -29,6 +30,7 @@ export function Modal({ title, onClose, children, className = '' }) {
 
 /* ─────────────────────── 设置 ─────────────────────── */
 const SETTINGS_SECTIONS = [
+  { id: 'setup', name: '配置向导', icon: '✧', adminOnly: true },
   { id: 'appearance', name: '外观与背景', icon: '◐' },
   { id: 'models', name: '模型', icon: '✦' },
   { id: 'tools', name: '工具能力', icon: '⚒' },
@@ -43,8 +45,8 @@ const SETTINGS_SECTIONS = [
   { id: 'admin', name: '用户与审计', icon: '◇', embed: 'admin', adminOnly: true },
 ]
 
-export function SettingsDialog({ onClose, user, modelList, appearance, setAppearance }) {
-  const [tab, setTab] = useState('appearance')
+export function SettingsDialog({ onClose, user, modelList, appearance, setAppearance, initialTab }) {
+  const [tab, setTab] = useState(initialTab || 'appearance')
 
   return (
     <Modal title="设置" onClose={onClose} className="settings">
@@ -71,6 +73,7 @@ export function SettingsDialog({ onClose, user, modelList, appearance, setAppear
           }
           return (
             <div className="dlg-content">
+              {tab === 'setup' && <SetupPanel />}
               {tab === 'appearance' && <AppearancePanel appearance={appearance} setAppearance={setAppearance} />}
               {tab === 'models' && <ModelsPanel modelList={modelList} />}
               {tab === 'tools' && <ToolsPanel />}
@@ -479,6 +482,126 @@ function McpPanel() {
   )
 }
 
+/* ─────────────────────── 配置向导 ─────────────────────── */
+
+const SETUP_FIELDS = [
+  { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek 密钥', hint: '默认模型用它（platform.deepseek.com 申请，国内可直连）' },
+  { key: 'ZHIPU_API_KEY', label: '智谱 GLM 密钥', hint: '可选（open.bigmodel.cn）' },
+  { key: 'DASHSCOPE_API_KEY', label: '通义千问 / VL 密钥', hint: '可选；视觉识别与语音识别用它（阿里云百炼）' },
+  { key: 'OPENAI_API_KEY', label: 'OpenAI 密钥', hint: '可选；国内访问需要代理' },
+  { key: 'TAVILY_API_KEY', label: 'Tavily 搜索密钥', hint: '可选；联网搜索用' },
+  { key: 'HUANZHEN_ADMIN_PASSWORD', label: '管理员密码', hint: '仅首次启动创建 admin 账号时使用；已有账号请用 scripts/reset_password.py' },
+]
+
+function SetupPanel() {
+  const [st, setSt] = useState(null)
+  const [form, setForm] = useState({})
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+
+  const load = useCallback(async () => {
+    try { setSt(await setupStatus()) } catch (e) { setErr(e.message || '读取配置状态失败') }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    const values = {}
+    Object.entries(form).forEach(([k, v]) => { if (v && v.trim()) values[k] = v.trim() })
+    if (Object.keys(values).length === 0) {
+      setErr('请至少填写一项（空值会被忽略，以免误清空已有密钥）')
+      return
+    }
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const r = await saveSetupEnv(values)
+      setMsg(r.message || '已保存，需重启服务生效')
+      setForm({})
+      if (r.setup) setSt(r.setup)
+      else load()
+    } catch (e) {
+      setErr(e.message || '保存失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="sec-h">配置向导</div>
+      <p className="sec-p">
+        这里填写的密钥会写入项目根目录的 <code>.env</code>，<b>保存后需要重启服务才生效</b>
+        （双击 <code>停止服务.bat</code> 再双击 <code>启动幻帧.bat</code>）。
+        也可以手工编辑该文件，或双击 <code>诊断.bat</code> 查看还缺什么。
+      </p>
+
+      {st && (
+        <div className="tile-list" style={{ marginBottom: 18 }}>
+          <div className="tile">
+            <div className="t">
+              <span>当前配置状态</span>
+              {st.configured
+                ? <span className="badge-ok">已配置</span>
+                : <span className="badge-off">尚未配置完成</span>}
+            </div>
+            {st.reason && <div className="d" style={{ color: 'var(--cyan)' }}>→ {st.reason}</div>}
+            <div className="tile-metrics">
+              <div className="m"><span className="k">默认模型</span><span className="v">{st.default_model || '—'}</span></div>
+              <div className="m">
+                <span className="k">模型可用</span>
+                <span className={'v' + (st.model_ready ? ' ok' : ' dim')}>{st.model_ready ? '是' : '否'}</span>
+              </div>
+              <div className="m">
+                <span className="k">管理员密码</span>
+                <span className={'v' + (st.admin_password_set ? ' ok' : ' dim')}>
+                  {st.admin_password_set ? '已设置' : '未设置'}
+                </span>
+              </div>
+              <div className="m"><span className="k">已有账号</span><span className="v">{st.users}</span></div>
+            </div>
+            <div className="d" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
+              .env：{st.env_exists ? '存在' : '不存在'} · config.yaml：{st.config_exists ? '存在' : '不存在'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {err && <div className="err-inline" style={{ marginBottom: 10 }}>{err}</div>}
+      {msg && <div className="badge-ok" style={{ marginBottom: 10, display: 'inline-flex' }}>{msg}</div>}
+
+      {SETUP_FIELDS.map((f) => {
+        const done = !!(st && st.model_keys && st.model_keys[f.key])
+          || (f.key === 'HUANZHEN_ADMIN_PASSWORD' && !!(st && st.admin_password_set))
+        return (
+          <div key={f.key} style={{ marginBottom: 14 }}>
+            <div className="field-row">
+              <label>
+                {f.label}
+                {done && <span className="badge-ok" style={{ marginLeft: 8 }}>已配置</span>}
+              </label>
+              <input
+                type="password"
+                autoComplete="off"
+                value={form[f.key] || ''}
+                placeholder={done ? '已配置（留空则不改动）' : '未配置'}
+                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+              />
+            </div>
+            <div className="sec-p" style={{ marginTop: 4, fontSize: 11.5 }}>{f.hint}</div>
+          </div>
+        )
+      })}
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+        <button className="head-btn primary" onClick={save} disabled={busy}>
+          {busy ? '保存中…' : '保存到 .env'}
+        </button>
+        <button className="head-btn" onClick={load} disabled={busy}>刷新状态</button>
+      </div>
+    </>
+  )
+}
+
 /* ─────────────────────── 系统状态 ─────────────────────── */
 
 function fmtUptime(sec) {
@@ -497,6 +620,7 @@ function SystemPanel() {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [msg, setMsg] = useState('')
+  const [clean, setClean] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true); setErr('')
@@ -524,6 +648,30 @@ function SystemPanel() {
       setMsg(`备份完成：${r.name}（${r.size_mb} MB）`)
       setData((prev) => (prev ? { ...prev, backups: r.backups } : prev))
     } catch (e) { setErr(e.message || '备份失败') }
+    finally { setBusy('') }
+  }
+
+  async function doPreview() {
+    setBusy('preview'); setErr(''); setMsg(''); setClean('')
+    try {
+      const r = await systemRetentionPreview()
+      const a = r.audit || {}
+      setClean(
+        `预演：将归档审计 ${a.archived_lines || 0} 行、清理过期归档 ${(r.archives && r.archives.removed ? r.archives.removed.length : 0)} 个、`
+        + `归档旧会话 ${(r.sessions && r.sessions.archived) || 0} 个、删除数据库审计 ${(r.database && r.database.deleted) || 0} 行`
+      )
+    } catch (e) { setErr(e.message || '预演失败') }
+    finally { setBusy('') }
+  }
+
+  async function doClean() {
+    if (!window.confirm('确认执行清理？\n\n旧审计会按月份压缩归档（不直接删除）；只有超过保留期的归档、会话与数据库审计记录才会被移除。')) return
+    setBusy('clean'); setErr(''); setMsg(''); setClean('')
+    try {
+      const r = await systemRetentionRun()
+      setMsg(r.message || '清理完成')
+      load()
+    } catch (e) { setErr(e.message || '清理失败') }
     finally { setBusy('') }
   }
 
@@ -627,6 +775,28 @@ function SystemPanel() {
           </div>
         ))}
       </div>
+
+      <div className="sec-head-row" style={{ marginTop: 20 }}>
+        <div>
+          <div className="sec-h">数据保留</div>
+          <p className="sec-p" style={{ marginBottom: 0 }}>
+            审计日志超过 90 天会按月压缩归档到 <code>logs/archive/</code>；只有超过保留期的
+            归档（365 天）、旧会话文件（180 天未更新）、数据库审计记录（180 天）才会被移除。
+            <b>无法判定时间的记录一律保留</b>。服务启动时每月自动执行一次。
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="head-btn" onClick={doPreview} disabled={busy !== ''}>
+            {busy === 'preview' ? '预演中…' : '预演'}
+          </button>
+          <button className="head-btn" onClick={doClean} disabled={busy !== ''}>
+            {busy === 'clean' ? '清理中…' : '立即清理'}
+          </button>
+        </div>
+      </div>
+      {clean && (
+        <div className="badge-off" style={{ marginTop: 10, display: 'inline-flex' }}>{clean}</div>
+      )}
 
       {checks && (
         <>

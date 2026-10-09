@@ -194,6 +194,49 @@ async def diagnostics(
     return payload
 
 
+def _retention_report(dry_run: bool) -> dict:
+    mod = load_script("retention.py")
+    if mod is None:
+        raise HTTPException(500, "清理脚本不可用（未找到 scripts/retention.py）")
+
+    # 网页触发时服务正在运行：拿审计写入锁，避免归档期间新记录被覆盖丢失
+    exclusive = None
+    try:
+        from core.security.audit import get_audit_logger  # noqa: PLC0415
+
+        exclusive = get_audit_logger().exclusive
+    except Exception:
+        exclusive = None
+
+    try:
+        return mod.apply_retention(dry_run=dry_run, exclusive=exclusive)
+    except Exception as e:
+        raise HTTPException(500, f"清理失败：{type(e).__name__}: {e}")
+
+
+@router.get("/retention/preview")
+def retention_preview(_admin: CurrentUser = Depends(require_admin)):
+    """预演：只统计会被归档/清理多少，不改动任何文件。"""
+    return _retention_report(dry_run=True)
+
+
+@router.post("/retention")
+def run_retention(_admin: CurrentUser = Depends(require_admin)):
+    """执行保留策略：归档旧审计、归档旧会话、清理过期归档与数据库审计。"""
+    report = _retention_report(dry_run=False)
+    audit = report.get("audit", {})
+    return {
+        "status": "ok",
+        "message": (
+            f"归档审计 {audit.get('archived_lines', 0)} 行、"
+            f"清理归档 {len(report.get('archives', {}).get('removed', []))} 个、"
+            f"归档会话 {report.get('sessions', {}).get('archived', 0)} 个、"
+            f"删除数据库审计 {report.get('database', {}).get('deleted', 0)} 行"
+        ),
+        "report": report,
+    }
+
+
 @router.get("/backups")
 def list_backups(_admin: CurrentUser = Depends(require_admin)):
     items = _backup_items()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteConversation, fetchHealth, fetchMe, fileRoots, getSettings, listConversations,
-  publicOverview, securityStatus, setToken,
+  publicOverview, securityStatus, setToken, setupStatus,
 } from './api.js'
 import Landing from './Landing.jsx'
 import { applyAppearance, loadAppearance, saveAppearance } from './theme.js'
@@ -29,7 +29,9 @@ export default function App() {
   const [online, setOnline] = useState(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [dialog, setDialog] = useState('')            // '' | settings | plugins | tasks
+  const [settingsTab, setSettingsTab] = useState('')  // 打开设置时定位到的分区
   const [collapsed, setCollapsed] = useState(false)
+  const [setup, setSetup] = useState(null)            // 首次配置状态
 
   const [conversations, setConversations] = useState([])
   const [activeConv, setActiveConv] = useState(null)  // {id,title} | null
@@ -118,6 +120,14 @@ export default function App() {
   }, [])
 
   useEffect(() => { if (phase === 'app') refreshConversations() }, [phase, refreshConversations])
+
+  /* ---------- 首次配置状态 ---------- */
+  useEffect(() => {
+    if (phase !== 'app') return
+    let alive = true
+    setupStatus().then((d) => { if (alive) setSetup(d) }).catch(() => {})
+    return () => { alive = false }
+  }, [phase])
 
   /* ---------- 工作空间入口 ---------- */
   useEffect(() => {
@@ -282,6 +292,20 @@ export default function App() {
           <button className="head-btn primary" onClick={startNewChat}>＋ 新聊天</button>
         </div>
 
+        {setup && !setup.model_ready && (
+          <div className="setup-notice">
+            <span className="sn-ic">⚠</span>
+            <div className="sn-body">
+              <b>还没配置模型密钥</b>
+              <span> —— {setup.reason || '对话将无法使用'}。请到「设置 → 配置向导」填写，保存后重启服务生效。</span>
+            </div>
+            <button
+              className="head-btn primary"
+              onClick={() => { setSettingsTab('setup'); setDialog('settings') }}
+            >去配置</button>
+          </div>
+        )}
+
         <ChatView
           key={nonce + ':' + (activeConv?.id || 'new')}
           activeConv={activeConv}
@@ -301,11 +325,12 @@ export default function App() {
 
       {dialog === 'settings' && (
         <SettingsDialog
-          onClose={() => setDialog('')}
+          onClose={() => { setDialog(''); setSettingsTab('') }}
           user={user}
           modelList={modelList}
           appearance={appearance}
           setAppearance={setAppearance}
+          initialTab={settingsTab}
         />
       )}
       {dialog === 'plugins' && <PluginsDialog onClose={() => setDialog('')} />}

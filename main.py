@@ -19,6 +19,7 @@ from core.routes import router as api_router
 from core.routes_auth import router as auth_router
 from core.routes_admin import router as admin_router
 from core.routes_security import router as security_router
+from core.routes_setup import router as setup_router
 from core.routes_system import router as system_router
 from core.security.auth import APIKeyMiddleware, get_security_settings
 from core.security.context import clear_request_context, set_request_context
@@ -117,10 +118,39 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("自动备份跳过（不影响服务）: {}", e)
 
+    async def _auto_retention() -> None:
+        """每月最多自动执行一次数据保留策略（归档旧审计/会话）。best-effort。"""
+        await asyncio.sleep(5)
+        try:
+            from core.script_loader import load_script  # noqa: PLC0415
+
+            module = load_script("retention.py")
+            if module is None:
+                return
+            exclusive = None
+            try:
+                from core.security.audit import get_audit_logger  # noqa: PLC0415
+
+                exclusive = get_audit_logger().exclusive
+            except Exception:
+                exclusive = None
+            report = await asyncio.to_thread(module.maybe_auto_retention, exclusive)
+            if report:
+                audit = (report or {}).get("audit", {})
+                logger.info(
+                    "已自动执行数据保留策略：归档审计 {} 行、归档会话 {} 个、删除库审计 {} 行",
+                    audit.get("archived_lines", 0),
+                    (report or {}).get("sessions", {}).get("archived", 0),
+                    (report or {}).get("database", {}).get("deleted", 0),
+                )
+        except Exception as e:
+            logger.warning("自动清理跳过（不影响服务）: {}", e)
+
     init_task = asyncio.create_task(_init_engine())
     backup_task = asyncio.create_task(_auto_backup())
+    retention_task = asyncio.create_task(_auto_retention())
     yield
-    for _task in (init_task, backup_task):
+    for _task in (init_task, backup_task, retention_task):
         _task.cancel()
         try:
             await _task
@@ -139,6 +169,7 @@ app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(security_router)
+app.include_router(setup_router)
 app.include_router(system_router)
 app.include_router(work_router)
 
@@ -524,10 +555,24 @@ if __name__ == "__main__":
 
     host = os.environ.get("HUANZHEN_HOST", "0.0.0.0")
     port = int(os.environ.get("HUANZHEN_PORT", "8000"))
+
+    # ── 单实例保护 ──
+    # 用户"双击没反应→再双击一次"时，第一次其实还在启动中（端口尚未监听），
+    # 启动脚本的端口检测拦不住，会起两个实例抢同一个 SQLite。这里用 PID 锁兜住。
+    from core.single_instance import acquire, conflict_message, release
+
+    ok, holder = acquire(port=port)
+    if not ok:
+        print(conflict_message(holder))
+        sys.exit(1)
+
     try:
         print("幻帧 AI 智能秘书 启动中...")
         print(f"本机访问:   http://127.0.0.1:{port}")
         print(f"局域网访问: http://<本机IP>:{port}")
     except Exception:
         pass
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="info")
+    finally:
+        release()

@@ -521,6 +521,19 @@ html[data-mode='light'] .send-circle { color: #fff; }
 .chip { font-size: calc(12.5px * var(--fs-scale) / 1.1); }
 .notice { font-size: calc(13px * var(--fs-scale) / 1.1); }
 
+/* 首次配置提示条：模型密钥未配置时显示在聊天区上方 */
+.setup-notice {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 18px;
+  background: rgba(255, 170, 60, 0.10);
+  border-bottom: 1px solid rgba(255, 170, 60, 0.35);
+  font-size: calc(13px * var(--fs-scale) / 1.1);
+  flex: 0 0 auto;
+}
+.setup-notice .sn-ic { font-size: 17px; color: #ffaa3c; }
+.setup-notice .sn-body { flex: 1; min-width: 0; color: var(--muted); }
+.setup-notice .sn-body b { color: var(--text); }
+
 @media (max-width: 860px) {
   .side { position: absolute; z-index: 30; height: 100%; }
   .chat-inner, .composer { max-width: 100%; }
