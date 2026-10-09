@@ -11,24 +11,24 @@ let debugEvents = [];        // 调试事件缓冲
 let debugActiveTab = 'events';
 
 // ── 登录态 / API Key（用户 JWT 优先）──
-window.kejiCurrentUser = null;
-window.kejiAuthReady = false;
+window.huanzhenCurrentUser = null;
+window.huanzhenAuthReady = false;
 
-function getKejiToken() {
-  return localStorage.getItem('keji_token') || '';
+function getHuanzhenToken() {
+  return localStorage.getItem('huanzhen_token') || '';
 }
-function setKejiToken(token) {
-  if (token) localStorage.setItem('keji_token', token);
-  else localStorage.removeItem('keji_token');
+function setHuanzhenToken(token) {
+  if (token) localStorage.setItem('huanzhen_token', token);
+  else localStorage.removeItem('huanzhen_token');
 }
-function getKejiApiKey() {
-  return localStorage.getItem('keji_api_key') || '';
+function getHuanzhenApiKey() {
+  return localStorage.getItem('huanzhen_api_key') || '';
 }
-function setKejiApiKey(key) {
-  if (key) localStorage.setItem('keji_api_key', key);
-  else localStorage.removeItem('keji_api_key');
+function setHuanzhenApiKey(key) {
+  if (key) localStorage.setItem('huanzhen_api_key', key);
+  else localStorage.removeItem('huanzhen_api_key');
 }
-function kejiAuthHeaders(extra) {
+function huanzhenAuthHeaders(extra) {
   var h = {};
   if (extra) {
     if (extra instanceof Headers) {
@@ -37,11 +37,11 @@ function kejiAuthHeaders(extra) {
       Object.assign(h, extra);
     }
   }
-  var token = getKejiToken();
+  var token = getHuanzhenToken();
   if (token) {
     h['Authorization'] = 'Bearer ' + token;
   } else {
-    var key = getKejiApiKey();
+    var key = getHuanzhenApiKey();
     // 勿把未替换的环境变量占位符或空串当作 API Key，否则会一直 401
     if (key && key.indexOf('${') < 0 && key.length >= 8) {
       h['Authorization'] = 'Bearer ' + key;
@@ -50,19 +50,19 @@ function kejiAuthHeaders(extra) {
   }
   return h;
 }
-function kejiFetch(url, options) {
+function huanzhenFetch(url, options) {
   options = options || {};
-  var headers = kejiAuthHeaders(options.headers);
+  var headers = huanzhenAuthHeaders(options.headers);
   return fetch(url, Object.assign({}, options, { headers: headers })).then(function(res) {
     if (res.status === 401) {
-      var hadSession = !!window.kejiAuthReady && !window.kejiJustLoggedIn;
+      var hadSession = !!window.huanzhenAuthReady && !window.huanzhenJustLoggedIn;
       var isCoreAuth =
         url.indexOf('/api/auth/me') >= 0 ||
         url.indexOf('/api/admin/') >= 0;
       if (hadSession && isCoreAuth) {
-        setKejiToken('');
-        window.kejiAuthReady = false;
-        window.kejiCurrentUser = null;
+        setHuanzhenToken('');
+        window.huanzhenAuthReady = false;
+        window.huanzhenCurrentUser = null;
         if (typeof showLoginOverlay === 'function') {
           showLoginOverlay('登录已过期，请重新登录');
         }
@@ -218,8 +218,8 @@ var _catColors = {
 // 加载并分组渲染工具
 function loadTools() {
   Promise.all([
-    kejiFetch('/tools').then(function(r){return r.json()}),
-    kejiFetch('/api/tools/display').then(function(r){return r.json()})
+    huanzhenFetch('/tools').then(function(r){return r.json()}),
+    huanzhenFetch('/api/tools/display').then(function(r){return r.json()})
   ]).then(function(data) {
     var toolsData = data[0];
     var displayData = data[1];
@@ -282,7 +282,7 @@ function toggleToolPanel() {
 }
 
 function checkStatus() {
-  kejiFetch('/api/status').then(r => r.json()).then(d => {
+  huanzhenFetch('/api/status').then(r => r.json()).then(d => {
     const dot = document.getElementById('statusDot');
     const text = document.getElementById('statusText');
     if (d.model) {

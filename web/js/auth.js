@@ -32,7 +32,7 @@ function hideLoginOverlay() {
 }
 
 function updateUserChrome() {
-  var u = window.kejiCurrentUser;
+  var u = window.huanzhenCurrentUser;
   var bar = document.getElementById('userBar');
   var adminNav = document.getElementById('navAdmin');
   if (bar) {
@@ -50,18 +50,18 @@ function updateUserChrome() {
   if (setNav) setNav.style.display = u && u.role === 'admin' ? '' : 'none';
 }
 
-function logoutKeji() {
-  setKejiToken('');
-  window.kejiCurrentUser = null;
-  window.kejiAuthReady = false;
+function logoutHuanzhen() {
+  setHuanzhenToken('');
+  window.huanzhenCurrentUser = null;
+  window.huanzhenAuthReady = false;
   showLoginOverlay();
 }
 
-function clearKejiLocalAuth() {
-  setKejiToken('');
-  setKejiApiKey('');
-  window.kejiCurrentUser = null;
-  window.kejiAuthReady = false;
+function clearHuanzhenLocalAuth() {
+  setHuanzhenToken('');
+  setHuanzhenApiKey('');
+  window.huanzhenCurrentUser = null;
+  window.huanzhenAuthReady = false;
   var err = document.getElementById('loginError');
   if (err) err.textContent = '';
   if (typeof toast === 'function') toast('已清除本地登录信息，请重新输入账号密码', 'success');
@@ -73,33 +73,33 @@ async function initAuth() {
     var res = await fetch('/api/security/status');
     var data = await res.json();
     if (!data.auth_enabled) {
-      window.kejiAuthReady = true;
+      window.huanzhenAuthReady = true;
       hideLoginOverlay();
       return;
     }
     if (data.authenticated && data.user) {
-      window.kejiCurrentUser = data.user;
-      window.kejiAuthReady = true;
+      window.huanzhenCurrentUser = data.user;
+      window.huanzhenAuthReady = true;
       hideLoginOverlay();
       updateUserChrome();
       if (typeof loadModelSettings === 'function') loadModelSettings();
       return;
     }
-    var token = getKejiToken();
+    var token = getHuanzhenToken();
     if (token) {
       var meRes = await fetch('/api/auth/me', {
         headers: { Authorization: 'Bearer ' + token },
       });
       if (meRes.ok) {
         var me = await meRes.json();
-        window.kejiCurrentUser = me.user;
-        window.kejiAuthReady = true;
+        window.huanzhenCurrentUser = me.user;
+        window.huanzhenAuthReady = true;
         hideLoginOverlay();
         updateUserChrome();
         if (typeof loadModelSettings === 'function') loadModelSettings();
         return;
       }
-      setKejiToken('');
+      setHuanzhenToken('');
     }
     var err0 = document.getElementById('loginError');
     if (err0) err0.textContent = '';
@@ -123,7 +123,7 @@ function bindLoginForm() {
       return;
     }
     if (err) err.textContent = '';
-    setKejiToken('');
+    setHuanzhenToken('');
     try {
       var res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -140,11 +140,11 @@ function bindLoginForm() {
         if (err) err.textContent = '登录响应异常（无 token），请重启服务后重试';
         return;
       }
-      setKejiToken(data.token);
-      window.kejiCurrentUser = data.user;
-      window.kejiAuthReady = true;
-      window.kejiJustLoggedIn = true;
-      setTimeout(function() { window.kejiJustLoggedIn = false; }, 3000);
+      setHuanzhenToken(data.token);
+      window.huanzhenCurrentUser = data.user;
+      window.huanzhenAuthReady = true;
+      window.huanzhenJustLoggedIn = true;
+      setTimeout(function() { window.huanzhenJustLoggedIn = false; }, 3000);
       hideLoginOverlay();
       updateUserChrome();
       if (typeof loadModelSettings === 'function') loadModelSettings();
@@ -182,7 +182,7 @@ function updateAdminStats() {
 
 function renderAdminUserCard(u) {
   var active = u.is_active;
-  var canDelete = u.id !== (window.kejiCurrentUser && window.kejiCurrentUser.id);
+  var canDelete = u.id !== (window.huanzhenCurrentUser && window.huanzhenCurrentUser.id);
   return '<div class="admin-user-card">' +
     '<div class="admin-user-card-main">' +
     '<div class="admin-user-avatar">' + adminRoleIcon(u.role) + '</div>' +
@@ -217,13 +217,13 @@ function _adminApiError(res, data) {
 async function loadAdminUsers() {
   var box = document.getElementById('adminUserList');
   if (!box) return;
-  if (!getKejiToken()) {
+  if (!getHuanzhenToken()) {
     box.innerHTML = '<div class="admin-empty">请先登录管理员账号</div>';
     return;
   }
   box.innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
   try {
-    var res = await kejiFetch('/api/admin/users');
+    var res = await huanzhenFetch('/api/admin/users');
     var data = {};
     try { data = await res.json(); } catch (e) { /* ignore */ }
     if (!res.ok) throw new Error(_adminApiError(res, data));
@@ -244,7 +244,7 @@ async function loadAdminUsers() {
 
 async function adminChangeRole(sel) {
   var uid = sel.getAttribute('data-uid');
-  await kejiFetch('/api/admin/users/' + uid, {
+  await huanzhenFetch('/api/admin/users/' + uid, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ role: sel.value }),
@@ -252,7 +252,7 @@ async function adminChangeRole(sel) {
 }
 
 async function adminToggleActive(uid, active) {
-  await kejiFetch('/api/admin/users/' + uid, {
+  await huanzhenFetch('/api/admin/users/' + uid, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ is_active: active }),
@@ -264,7 +264,7 @@ async function adminDeleteUser(uid) {
   var u = _adminUsersCache.find(function(x) { return x.id === uid; });
   var name = u ? (u.display_name || u.username) : uid;
   if (!confirm('确定删除用户「' + name + '」？其对话记录也会一并删除。')) return;
-  var res = await kejiFetch('/api/admin/users/' + uid, { method: 'DELETE' });
+  var res = await huanzhenFetch('/api/admin/users/' + uid, { method: 'DELETE' });
   var data = {};
   try { data = await res.json(); } catch (e) { /* ignore */ }
   if (!res.ok) {
@@ -279,7 +279,7 @@ async function adminDeleteUser(uid) {
 async function adminResetPassword(uid) {
   var pw = prompt('输入新密码（至少 6 位）');
   if (!pw || pw.length < 6) return;
-  await kejiFetch('/api/admin/users/' + uid, {
+  await huanzhenFetch('/api/admin/users/' + uid, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: pw }),
@@ -305,7 +305,7 @@ async function adminCreateUser() {
     return;
   }
   try {
-    var res = await kejiFetch('/api/admin/users', {
+    var res = await huanzhenFetch('/api/admin/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: u, password: p, role: r, display_name: d || u }),
@@ -337,7 +337,7 @@ async function adminCreateUser() {
 async function loadAdminConversations() {
   var box = document.getElementById('adminConvList');
   if (!box) return;
-  if (!getKejiToken()) {
+  if (!getHuanzhenToken()) {
     box.innerHTML = '<div class="admin-empty">请先登录</div>';
     return;
   }
@@ -345,7 +345,7 @@ async function loadAdminConversations() {
   var filter = document.getElementById('adminConvUserFilter');
   var q = filter && filter.value ? '?user_id=' + encodeURIComponent(filter.value) : '';
   try {
-    var res = await kejiFetch('/api/admin/conversations' + q);
+    var res = await huanzhenFetch('/api/admin/conversations' + q);
     var data = {};
     try { data = await res.json(); } catch (e) { /* ignore */ }
     if (!res.ok) throw new Error(_adminApiError(res, data));
@@ -389,7 +389,7 @@ async function adminOpenConv(convId) {
   });
   panel.innerHTML = '<div class="admin-preview-scroll"><div class="loading"><div class="spinner"></div>加载中...</div></div>';
   try {
-    var res = await kejiFetch('/api/admin/conversations/' + convId);
+    var res = await huanzhenFetch('/api/admin/conversations/' + convId);
     var data = await res.json();
     if (!res.ok) throw new Error(data.detail || '加载失败');
     var msgs = (data.messages || []).slice(-30);
@@ -417,11 +417,11 @@ async function adminOpenConv(convId) {
 function loadAdminPage() {
   loadAdminUsers();
   loadAdminConversations();
-  kejiFetch('/api/admin/conversations').then(function(r) { return r.json(); }).then(function(d) {
+  huanzhenFetch('/api/admin/conversations').then(function(r) { return r.json(); }).then(function(d) {
     _adminConvCount = (d.conversations || []).length;
     updateAdminStats();
   }).catch(function() {});
-  kejiFetch('/api/admin/users').then(function(r) { return r.json(); }).then(function(d) {
+  huanzhenFetch('/api/admin/users').then(function(r) { return r.json(); }).then(function(d) {
     var sel = document.getElementById('adminConvUserFilter');
     if (!sel) return;
     var users = d.users || [];

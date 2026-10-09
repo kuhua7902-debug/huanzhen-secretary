@@ -26,10 +26,10 @@ from typing import Optional
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel
 
-from nanobot.adapter import KejiAdapter
+from nanobot.adapter import HuanzhenAdapter
 from core.wechat.work import WorkClient, WorkConfig, WorkMessage
 
-logger = logging.getLogger("keji.wechat.work_bridge")
+logger = logging.getLogger("huanzhen.wechat.work_bridge")
 
 # 全局实例
 _bridge: Optional["WorkBridge"] = None
@@ -40,7 +40,7 @@ class WorkBridge:
 
     def __init__(self):
         self.client = WorkClient()
-        self.adapter: Optional[KejiAdapter] = None
+        self.adapter: Optional[HuanzhenAdapter] = None
         self._conv_map: dict[str, str] = {}
         self._conv_lock = threading.Lock()
 
@@ -62,7 +62,7 @@ class WorkBridge:
                 self._conv_map[user_id] = f"ww_{uuid.uuid4().hex[:12]}"
             return self._conv_map[user_id]
 
-    async def _ensure_adapter(self) -> KejiAdapter:
+    async def _ensure_adapter(self) -> HuanzhenAdapter:
         """复用全局 Adapter 单例（在服务器事件循环里初始化，MCP 才能正常连接）。"""
         if self.adapter is None:
             from nanobot.adapter import get_adapter
@@ -82,7 +82,7 @@ class WorkBridge:
             # 标注来源，便于审计里区分企业微信渠道（无登录用户，按服务身份处理）
             set_request_context(actor="wecom", user_id="service", role="")
             adapter = await self._ensure_adapter()
-            # 注意：KejiAdapter.chat 的第二个参数名是 sid（不是 session_id）
+            # 注意：HuanzhenAdapter.chat 的第二个参数名是 sid（不是 session_id）
             return await adapter.chat(msg.content, sid=conv_id)
         except Exception as e:
             logger.error("Agent error: %s", e, exc_info=True)

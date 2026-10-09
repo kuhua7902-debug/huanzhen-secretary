@@ -1,7 +1,7 @@
 """B. 工具 schema 完整性 —— ``nanobot/adapter_tools.py``。
 
 这里的核心风险是"声明与实际签名不一致"：
-``KejiTool.parameters`` 是给 LLM 看的 JSON Schema，``KejiTool.execute`` 会把
+``HuanzhenTool.parameters`` 是给 LLM 看的 JSON Schema，``HuanzhenTool.execute`` 会把
 模型给的参数直接 ``**kwargs`` 打给真实函数。如果 schema 里声明了函数不接受的
 参数名，参数校验会通过、调用却在运行期炸掉 —— 历史上就因此有 6 个工具
 稳定报 ``TypeError: unexpected keyword argument``。
@@ -129,17 +129,17 @@ def test_read_only_flag_matches_permission_model(adapter, tool_defs):
 
     problems = []
     for name, desc, props, required in tool_defs:
-        tool = adapter.KejiTool(name, desc, props, required)
+        tool = adapter.HuanzhenTool(name, desc, props, required)
         expected_read_only = not is_write_tool(name)
         if bool(tool.read_only) != expected_read_only:
             problems.append(f"{name}: read_only={tool.read_only} 与 is_write_tool 判定不符")
     assert not problems, "\n".join(problems)
 
 
-def test_keji_tool_schema_uses_object_type_and_carries_required(adapter, tool_defs):
+def test_huanzhen_tool_schema_uses_object_type_and_carries_required(adapter, tool_defs):
     """风险：schema 结构不符合 OpenAI function-calling 规范 → 模型拿不到参数定义。"""
     name, desc, props, required = tool_defs[0]
-    tool = adapter.KejiTool(name, desc, props, required)
+    tool = adapter.HuanzhenTool(name, desc, props, required)
     schema = tool.parameters
     assert schema["type"] == "object"
     assert schema["properties"] is props
@@ -158,7 +158,7 @@ def test_required_wiring_is_enforced_by_validation(adapter, tool_defs):
     """
     problems = []
     for name, desc, props, required in tool_defs:
-        tool = adapter.KejiTool(name, desc, props, required)
+        tool = adapter.HuanzhenTool(name, desc, props, required)
         errors = tool.validate_params({})
         if required:
             if not errors:
@@ -175,28 +175,28 @@ def test_gui_tools_are_exclusive(adapter, tool_defs):
     """
     for name in ("click_position", "type_text", "press_key", "drag_mouse",
                  "close_window", "open_application", "run_command"):
-        tool = adapter.KejiTool(name, "d", {}, None)
+        tool = adapter.HuanzhenTool(name, "d", {}, None)
         assert tool.exclusive is True, f"{name} 未标记为独占执行"
 
 
 def test_read_only_tools_are_not_exclusive(adapter):
     """风险：把只读工具标成独占会让引擎完全失去并发能力（性能回归）。"""
     for name in ("read_file", "browse_files", "get_time"):
-        tool = adapter.KejiTool(name, "d", {}, None)
+        tool = adapter.HuanzhenTool(name, "d", {}, None)
         assert tool.exclusive is False
 
 
 @pytest.mark.slow
-def test_register_keji_tools_populates_engine_registry(adapter, tmp_path):
+def test_register_huanzhen_tools_populates_engine_registry(adapter, tmp_path):
     """风险（集成）：注册流程本身坏掉（异常被 except 吞掉）会导致工具全部消失。
 
-    ``register_keji_tools`` 内部对每个工具 try/except + warning，所以这里断言
+    ``register_huanzhen_tools`` 内部对每个工具 try/except + warning，所以这里断言
     "注册数量等于 TOOL_DEFS 数量"，否则异常被静默吞掉也看不出来。
     """
     from nanobot.agent.tools.registry import ToolRegistry
 
     registry = ToolRegistry()
-    adapter.register_keji_tools(registry, tmp_path)
+    adapter.register_huanzhen_tools(registry, tmp_path)
 
     assert len(registry) == len(adapter.TOOL_DEFS), (
         f"注册 {len(registry)} 个，期望 {len(adapter.TOOL_DEFS)} 个"
@@ -212,7 +212,7 @@ def test_registered_tool_definitions_are_valid_schemas(adapter, tmp_path):
     from nanobot.agent.tools.registry import ToolRegistry
 
     registry = ToolRegistry()
-    adapter.register_keji_tools(registry, tmp_path)
+    adapter.register_huanzhen_tools(registry, tmp_path)
     definitions = registry.get_definitions()
     assert len(definitions) == len(adapter.TOOL_DEFS)
     for d in definitions:

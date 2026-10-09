@@ -214,19 +214,19 @@ from pathlib import Path as _Path
 
 _SANDBOX_ROOTS = [{", ".join(repr(str(p)) for p in roots)}]
 
-def _keji_under(_p, _root):
+def _huanzhen_under(_p, _root):
     try:
         _p.resolve().relative_to(_Path(_root).resolve())
         return True
     except ValueError:
         return False
 
-def _keji_guard_path(_file):
+def _huanzhen_guard_path(_file):
     _p = _Path(_file)
     if not _p.is_absolute():
         _p = _Path({str(project_root)!r}) / _p
     _p = _p.resolve()
-    if not any(_keji_under(_p, _r) for _r in _SANDBOX_ROOTS):
+    if not any(_huanzhen_under(_p, _r) for _r in _SANDBOX_ROOTS):
         raise PermissionError(
             "路径 " + str(_p) + " 不在允许目录内。允许: " + ", ".join(_SANDBOX_ROOTS)
         )
@@ -237,7 +237,7 @@ def open(file, mode="r", *args, **kwargs):
     if isinstance(file, (str, _Path)):
         _m = mode or "r"
         if any(c in _m for c in "rwa+x"):
-            _keji_guard_path(file)
+            _huanzhen_guard_path(file)
     return _orig_open(file, mode, *args, **kwargs)
 # --- 沙箱结束 ---
 """

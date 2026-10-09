@@ -1,0 +1,104 @@
+/* ============================================================================
+ * 登录页（方案 A+B）：左品牌区（跟随用户背景图） + 右表单区
+ * ========================================================================== */
+.lg-split { display: flex; height: 100%; overflow: hidden; }
+
+/* ── 左：品牌区 ── */
+.lg-brand { position: relative; flex: 1 1 55%; min-width: 0; overflow: hidden; display: flex; align-items: center; }
+.lg-brand-bg {
+  position: absolute; inset: 0;
+  background: var(--chat-bg); background-size: cover; background-position: center;
+  filter: blur(var(--chat-bg-blur)); transform: scale(1.06);
+}
+.lg-brand-glow {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(700px 420px at 18% 18%, rgba(77, 107, 254, 0.34), transparent 64%),
+    radial-gradient(600px 400px at 82% 92%, rgba(52, 211, 153, 0.20), transparent 64%);
+}
+.lg-brand-dim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(6, 9, 15, 0.52), rgba(6, 9, 15, 0.84)); }
+html[data-mode='light'] .lg-brand-dim { background: linear-gradient(180deg, rgba(6, 9, 15, 0.60), rgba(6, 9, 15, 0.86)); }
+.lg-brand-inner { position: relative; z-index: 2; padding: 0 clamp(28px, 5vw, 72px); max-width: 640px; }
+.lg-logo { display: flex; align-items: center; gap: 9px; font-size: 16px; font-weight: 700; color: #fff; }
+.lg-logo .mark { color: #4D6BFE; }
+.lg-logo .tag {
+  font-size: 10.5px; font-weight: 400; color: #8A93A6; font-family: var(--mono);
+  border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px; padding: 1px 9px;
+}
+.lg-brand h1 { margin: 26px 0 0; font-size: clamp(26px, 3.2vw, 42px); line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
+.lg-brand h1 em {
+  font-style: normal;
+  background: linear-gradient(100deg, #7C93FF, #34D399);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.lg-points { list-style: none; margin: 24px 0 0; padding: 0; }
+.lg-points li { position: relative; padding-left: 20px; margin-bottom: 9px; font-size: calc(13.5px * var(--fs-scale) / 1.1); color: #B9C2D6; }
+.lg-points li::before { content: '✓'; position: absolute; left: 0; color: #34D399; font-size: 12px; }
+.lg-mini {
+  margin-top: 28px; max-width: 430px;
+  border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 12px;
+  background: rgba(10, 14, 21, 0.58); backdrop-filter: blur(10px); overflow: hidden;
+}
+.lg-mini-head {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px; font-family: var(--mono); color: #8A93A6;
+}
+.lg-mini-row { display: flex; align-items: center; gap: 9px; padding: 7px 12px; font-family: var(--mono); font-size: calc(11.5px * var(--fs-scale) / 1.1); }
+.lg-mini-row .ic { color: #34D399; }
+.lg-mini-row .nm { color: #E6EAF2; }
+.lg-mini-row .ag { flex: 1; color: #5A6376; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-mini-row .ms { color: #8A93A6; }
+.lg-mini-tip { padding: 8px 12px 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 11px; color: #5A6376; }
+.lg-brand-foot { margin-top: 30px; font-size: 11.5px; color: #4A5266; font-family: var(--mono); }
+
+/* ── 右：表单区 ── */
+.lg-form-side { flex: 1 1 45%; display: flex; align-items: center; justify-content: center; padding: 40px 24px; background: var(--bg); }
+.lg-form { width: min(380px, 100%); }
+.lg-form.shake { animation: lgShake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes lgShake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+.lg-form-head h2 { font-size: calc(22px * var(--fs-scale) / 1.1); font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.lg-form-head h2 .mark { color: var(--primary); font-size: 15px; margin-right: 5px; }
+.lg-form-head .sub { margin: 7px 0 26px; font-size: calc(12.5px * var(--fs-scale) / 1.1); color: var(--faint); }
+.lg-field { margin-bottom: 16px; }
+.lg-field label { display: block; font-size: calc(12px * var(--fs-scale) / 1.1); color: var(--dim); margin-bottom: 7px; }
+.lg-field input { width: 100%; padding: 11px 13px; font-size: calc(14px * var(--fs-scale) / 1.1); }
+.lg-pw { position: relative; }
+.lg-pw input { padding-right: 64px; }
+.lg-pw.bad input { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(246, 70, 93, 0.14); }
+.lg-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; color: var(--faint);
+  font-size: 11.5px; padding: 5px 8px; border-radius: 6px;
+}
+.lg-eye:hover { color: var(--text); background: var(--bg-hover); }
+.lg-submit {
+  width: 100%; margin-top: 6px; background: var(--primary); color: #fff;
+  border: none; border-radius: 10px; padding: 12px;
+  font-size: calc(14px * var(--fs-scale) / 1.1); font-weight: 600; letter-spacing: 0.06em;
+  transition: background 0.16s;
+}
+.lg-submit:hover { background: var(--primary-hover); }
+.lg-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.lg-err { min-height: 18px; margin-top: 12px; text-align: center; font-size: calc(12.5px * var(--fs-scale) / 1.1); color: var(--danger); }
+.lg-back { text-align: center; margin-top: 6px; }
+.lg-back a { font-size: calc(12.5px * var(--fs-scale) / 1.1); color: var(--faint); text-decoration: none; }
+.lg-back a:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-form.shake { animation: none; }
+}
+@media (max-width: 900px) {
+  .lg-split { flex-direction: column; overflow-y: auto; }
+  .lg-brand { flex: 0 0 auto; padding: 34px 0; }
+  .lg-brand-inner { padding: 0 20px; }
+  .lg-brand h1 { font-size: 26px; margin-top: 18px; }
+  .lg-mini { display: none; }
+  .lg-brand-foot { margin-top: 20px; }
+  .lg-form-side { flex: 1; }
+}

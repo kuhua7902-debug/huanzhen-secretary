@@ -38,7 +38,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── 单实例锁：防止多个语音助手同时运行 ──
-PID_FILE = os.path.join(tempfile.gettempdir(), "keji_voice_tray.pid")
+PID_FILE = os.path.join(tempfile.gettempdir(), "huanzhen_voice_tray.pid")
 
 
 def _is_process_running(pid: int) -> bool:
@@ -137,7 +137,7 @@ import pystray
 from core.voice_listener import VoiceListener
 from core.logger import setup_logger
 
-logger = setup_logger("keji.tray")
+logger = setup_logger("huanzhen.tray")
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ class VoiceTrayApp:
         menu = self._create_menu()
 
         self._tray = pystray.Icon(
-            "keji_voice",
+            "huanzhen_voice",
             icon,
             "幻帧语音助手 - 监听中",
             menu,

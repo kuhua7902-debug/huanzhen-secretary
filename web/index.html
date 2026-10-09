@@ -6,8 +6,12 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>幻帧智能秘书</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="stylesheet" href="/static/css/style.css?v=VERSION">
+<link rel="stylesheet" href="/static/css/harness.css?v=VERSION">
 <style>
 /* 快捷命令栏样式（内联防止缓存） */
 .qc-toggle{display:inline-flex;align-items:center;gap:4px;padding:5px 16px;font-size:13px;border:1px solid var(--border);border-radius:20px;background:var(--bg-card);color:var(--text-secondary);cursor:pointer;transition:all .15s;font-family:inherit;font-weight:500}
@@ -24,11 +28,11 @@
 .qc-tool-btn:hover{background:var(--primary-light);border-color:var(--primary);color:var(--primary)}
 .qc-tool-btn.open{background:var(--primary);border-color:var(--primary);color:#fff}
 /* 技能面板（内联防止缓存） */
-.skill-card.active{border-color:var(--success);background:#e8f5e9 !important}
+.skill-card.active{border-color:var(--success);background:rgba(52,211,153,.10) !important}
 .skill-card-name .active-badge{display:none;font-size:11px;background:var(--success);color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px;font-weight:400}
 .skill-card.active .skill-card-name .active-badge{display:inline}
 </style>
-<script>document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');s.textContent='.skill-card.active{background:#e8f5e9 !important;border-color:#27ae60 !important}';document.head.appendChild(s);});</script>
+<script>document.addEventListener('DOMContentLoaded',function(){var s=document.createElement('style');s.textContent='.skill-card.active{background:rgba(52,211,153,.10) !important;border-color:rgba(52,211,153,.45) !important}';document.head.appendChild(s);});</script>
 </head>
 <body>
 
@@ -43,7 +47,7 @@
       <input type="password" id="loginPassword" autocomplete="current-password" required>
       <div id="loginError" class="login-error"></div>
       <button type="submit" class="btn btn-primary login-submit">登录</button>
-      <p class="login-hint"><a href="#" onclick="clearKejiLocalAuth();return false">清除本地登录缓存</a>（若提示过期或无法登录可点此）</p>
+      <p class="login-hint"><a href="#" onclick="clearHuanzhenLocalAuth();return false">清除本地登录缓存</a>（若提示过期或无法登录可点此）</p>
     </form>
   </div>
 </div>
@@ -107,7 +111,7 @@
   <div id="userBar" class="sidebar-user" style="display:none">
     <span id="userDisplayName">用户</span>
     <span id="userRoleBadge" class="user-role-badge">成员</span>
-    <button type="button" class="btn-logout" onclick="logoutKeji()" title="退出登录">退出</button>
+    <button type="button" class="btn-logout" onclick="logoutHuanzhen()" title="退出登录">退出</button>
   </div>
   <!-- 修复（死标记）：原 sidebar-mode 空壳里只剩一行「Agent 模式已整合到自动流程中」的注释，
        #modeBtnReact / #modeBtnPlan 按钮早已不存在，属于死标记，连同它的 CSS 一起删除 -->
@@ -382,10 +386,10 @@
         </h3>
         <div class="settings-row">
           <div><label>幻帧 API Key（可选）</label><div class="desc">仅脚本/外部调用需要；网页请用账号登录。与服务器 HUANZHEN_API_KEY 或 data/security/api_key 一致</div></div>
-          <input type="password" id="setKejiApiKey" value="" placeholder="粘贴 API Key" style="min-width:280px">
+          <input type="password" id="setHuanzhenApiKey" value="" placeholder="粘贴 API Key" style="min-width:280px">
         </div>
         <div style="padding:8px 0 16px">
-          <button class="btn btn-secondary" type="button" onclick="saveKejiApiKey()">保存访问密钥</button>
+          <button class="btn btn-secondary" type="button" onclick="saveHuanzhenApiKey()">保存访问密钥</button>
           <span id="securityStatusHint" style="margin-left:12px;font-size:12px;color:var(--text-muted)"></span>
         </div>
       </div>
@@ -1089,6 +1093,7 @@
 
 <!-- ===== 调试面板 JS ===== -->
 <script src="/static/js/debug.js?v=VERSION"></script>
+<script src="/static/js/harness.js?v=VERSION"></script>
 <div class="ctx-menu" id="ctxMenu"></div>
 </body>
 </html>

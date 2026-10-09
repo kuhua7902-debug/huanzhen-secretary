@@ -18,7 +18,7 @@ from typing import Optional
 
 from core.logger import setup_logger
 
-logger = setup_logger("keji.smart_query")
+logger = setup_logger("huanzhen.smart_query")
 
 
 def _get_model():

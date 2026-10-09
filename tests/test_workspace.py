@@ -293,7 +293,7 @@ def test_path_display_outside_workspace_returns_input(workspace_files):
 def test_path_display_replaces_user_id_with_display_name(workspace_files, monkeypatch):
     """风险：用户目录展示用内部 ID（泄露用户表主键）；此处同时避免触碰真实数据库。
 
-    真实 ``data/keji.db`` 不参与：``get_db`` 在 ``path_display`` 内部按需导入，
+    真实 ``data/huanzhen.db`` 不参与：``get_db`` 在 ``path_display`` 内部按需导入，
     这里替换成桩对象。
     """
 

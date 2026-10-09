@@ -4,7 +4,7 @@
 - ``estimate_tool_cost`` 是给用户看的账单依据。算成负数、非确定性、
   或对未知模型直接崩，都会让计费/展示页面出错。
 - 所有用例一律使用 ``tmp_path`` 下的临时 SQLite 文件，
-  绝不触碰真实 ``data/keji.db``（里面有真人对话与账号）。
+  绝不触碰真实 ``data/huanzhen.db``（里面有真人对话与账号）。
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def test_pricing_table_entries_are_consistent():
 
 
 def test_database_uses_given_path_and_not_the_real_one(tmp_path):
-    """风险（核心）：测试若落到真实 ``data/keji.db`` 会污染真人数据。"""
+    """风险（核心）：测试若落到真实 ``data/huanzhen.db`` 会污染真人数据。"""
     path = tmp_path / "isolated.db"
     db = Database(str(path))
     assert db.db_path == str(path)

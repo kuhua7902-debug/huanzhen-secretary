@@ -13,9 +13,9 @@ from loguru import logger
 _ENV_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 # ── 环境变量命名兼容 ──
-# 产品由「科吉 / Keji」更名为「幻帧 / Huanzhen」，但大量既有部署的 .env 里
-# 仍然是 KEJI_* 变量名。这里统一按「新名字优先、旧名字兜底」读取，
-# 使得 README 里写的 HUANZHEN_* 与历史 KEJI_* 都能生效。
+# 大量既有部署的 .env 沿用历史前缀 KEJI_*。这里按「新名字优先、旧名字兜底」读取，
+# 使 HUANZHEN_*（当前前缀）与历史 KEJI_* 都能生效，便于平滑迁移。
+# 注意：KEJI_* 属于**兼容别名**而非命名遗留，删掉会让旧部署无法登录/鉴权。
 ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "ADMIN_PASSWORD": ("HUANZHEN_ADMIN_PASSWORD", "KEJI_ADMIN_PASSWORD"),
     "JWT_SECRET": ("HUANZHEN_JWT_SECRET", "KEJI_JWT_SECRET"),
@@ -72,7 +72,7 @@ def resolve_env_ref(value: str) -> str:
     var = m.group(1)
     resolved = os.environ.get(var, "")
     if not resolved:
-        # 先按别名再试一次（HUANZHEN_* / KEJI_* 互相兼容）
+        # 先按别名再试一次（HUANZHEN_* 与历史 KEJI_* 互相兼容）
         for names in ENV_ALIASES.values():
             if var in names:
                 resolved = env_first(*names)

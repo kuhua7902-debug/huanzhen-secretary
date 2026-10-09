@@ -15,7 +15,7 @@ function Write-Ok([string]$Msg) { Write-Host "OK  $Msg" -ForegroundColor Green }
 function Write-Warn2([string]$Msg) { Write-Host "!!  $Msg" -ForegroundColor Yellow }
 
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Keji - Package offline bundle" -ForegroundColor Green
+Write-Host "  Huanzhen - Package offline bundle" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 
 $req = Join-Path $Root "requirements.txt"
@@ -96,7 +96,7 @@ if ($IncludeVenv -and -not $PythonVersion) {
     Copy-Item (Join-Path $outRoot "BUILD_INFO.txt") (Join-Path $Root "portable_bundle\BUILD_INFO.txt") -Force
     $vmb = [math]::Round(((Get-ChildItem $bundle -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
     Write-Ok "portable_bundle/venv copied, about ${vmb} MB"
-    Write-Host "!!  Target path should match, e.g. always D:\keji. Different drive/path may break venv." -ForegroundColor Yellow
+    Write-Host "!!  Target path should match, e.g. always D:\huanzhen. Different drive/path may break venv." -ForegroundColor Yellow
 }
 
 if ($IncludeNodeModules) {

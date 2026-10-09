@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.database.db import get_db
-from core.rag.vector_store import get_vector_store
+from core.rag.vector_store import COLLECTION_NAME, get_vector_store
 from core.document.parser import is_supported, get_file_metadata, get_doc_category
 from core.document.indexer import get_indexer
 
@@ -110,7 +110,7 @@ def clear_knowledge():
 
     # 直接删除整个 collection，避免逐条删除导致索引错误
     try:
-        vs.client.delete_collection("keji_documents")
+        vs.client.delete_collection(COLLECTION_NAME)
     except Exception:
         pass
 
@@ -118,7 +118,7 @@ def clear_knowledge():
     from core.rag.embeddings import EmbeddingManager
     embedding_fn = EmbeddingManager.get_instance().get_ollama()
     vs.collection = vs.client.create_collection(
-        name="keji_documents",
+        name=COLLECTION_NAME,
         embedding_function=embedding_fn,
         metadata={"hnsw:space": "cosine"},
     )
@@ -1436,30 +1436,8 @@ async def reload_mcp_servers_alias():
 
 # ──────────── 数据库管理接口 ────────────
 
-import base64
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-def _get_cipher() -> Fernet:
-    """获取密码加密器（基于机器级密钥）"""
-    import hashlib
-    machine_id = hashlib.md5(os.environ.get("COMPUTERNAME", "keji").encode()).hexdigest()
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"keji-db-pwd", iterations=100000)
-    key = base64.urlsafe_b64encode(kdf.derive(machine_id.encode()))
-    return Fernet(key)
-
-def _encrypt_pwd(password: str) -> str:
-    try:
-        return _get_cipher().encrypt(password.encode()).decode()
-    except Exception:
-        return ""
-
-def _decrypt_pwd(encrypted: str) -> str:
-    try:
-        return _get_cipher().decrypt(encrypted.encode()).decode()
-    except Exception:
-        return encrypted
+from core.security.db_crypto import decrypt_password as _decrypt_pwd
+from core.security.db_crypto import encrypt_password as _encrypt_pwd
 
 
 @router.get("/database/configs")
@@ -2268,3 +2246,64 @@ def session_cost(session_id: str):
     db = get_db()
     cost = db.get_session_cost(session_id)
     return cost
+
+
+# ═══════════════════════════════════════════════════════
+# 模型账户余额 / 用量
+# ═══════════════════════════════════════════════════════
+
+
+@router.get("/models/balance")
+def models_balance(refresh: int = Query(0, description="1=强制刷新（跳过缓存）")):
+    """各模型厂商的账户余额 + 本地累计用量。
+
+    - 余额：仅 DeepSeek 等提供公开接口的厂商能查到，其余如实标注"不支持"；
+      查询在服务端完成，API Key 不会返回给前端。
+    - 用量：来自本机 tool_usage_log 的实测统计，覆盖全部模型。
+    """
+    from core.models_billing import get_balances, usage_by_model
+
+    return {
+        "models": get_balances(force=bool(refresh)),
+        "usage": usage_by_model(),
+    }
+
+
+# ═══════════════════════════════════════════════════════
+# 公开概览（登录前首页用）
+# ═══════════════════════════════════════════════════════
+
+
+@router.get("/public/overview")
+def public_overview():
+    """登录前首页展示的能力概览。
+
+    只返回**计数类**信息，不含任何用户数据、密钥或文件内容。
+    路径 /api/public 已在 auth 的公开前缀里，无需登录即可访问。
+    """
+    overview = {
+        "engine": "nanobot",
+        "version": "1.0.1-Beta",
+        "tools": 0,
+        "mcp": 0,
+        "skills": 0,
+    }
+    try:
+        from nanobot.adapter_tools import TOOL_DEFS
+
+        overview["tools"] = len(TOOL_DEFS)
+    except Exception:
+        pass
+    try:
+        from core.security.secrets import load_app_config
+
+        overview["mcp"] = len((load_app_config().get("mcp_servers") or {}))
+    except Exception:
+        pass
+    try:
+        from core.skills import get_registry
+
+        overview["skills"] = len(get_registry()._skills)
+    except Exception:
+        pass
+    return overview

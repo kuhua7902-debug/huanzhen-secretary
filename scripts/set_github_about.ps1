@@ -15,9 +15,9 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
 
 $desc = "Windows 本地/局域网 AI 助手：Web 对话、多用户与角色权限、团队文件工作区。Python 3.12 一键部署，依赖包已含（Git LFS）。"
 
-gh repo edit Zuofeng198/keji `
+gh repo edit kuhua7902-debug/huanzhen-secretary `
     --description $desc `
-    --homepage "https://github.com/Zuofeng198/keji#readme" `
+    --homepage "https://github.com/kuhua7902-debug/huanzhen-secretary#readme" `
     --add-topic ai-agent `
     --add-topic fastapi `
     --add-topic deepseek `
@@ -25,4 +25,4 @@ gh repo edit Zuofeng198/keji `
     --add-topic multi-user
 
 Write-Host "已更新仓库 About / Description。" -ForegroundColor Green
-gh repo view Zuofeng198/keji --json description,url
+gh repo view kuhua7902-debug/huanzhen-secretary --json description,url

@@ -1,0 +1,20 @@
+{
+  "name": "huanzhen-harness",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "幻帧 Harness 前端（Vite + React）构建产物输出到 web/dist",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

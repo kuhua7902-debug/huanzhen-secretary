@@ -1,8 +1,8 @@
 # 第三方组件与致谢
 
-本仓库在 [MIT License](../LICENSE) 下发布**科吉（Keji）自有部分**（如 `core/`、`web/`、`main.py`、多用户与工作区等）。
+本仓库在 [MIT License](../LICENSE) 下发布**幻帧（Huanzhen）自有部分**（如 `core/`、`web/`、`main.py`、多用户与工作区等）。
 
-以下组件为独立开源项目或附带单独许可，使用时请遵守各自条款。科吉对上游项目表示感谢。
+以下组件为独立开源项目或附带单独许可，使用时请遵守各自条款。幻帧对上游项目表示感谢。
 
 ---
 
@@ -15,7 +15,7 @@
 | **版权** | Copyright (c) 2025 nanobot contributors |
 | **本仓库位置** | `nanobot/` 目录（含 Agent 运行时、工具、Provider、会话等） |
 
-科吉在 nanobot 之上增加了 Web 界面、多用户鉴权、团队工作区、权限控制与企业部署脚本等。**Agent 核心能力来自 HKUDS 团队的 nanobot 项目**，并非科吉原创。
+幻帧在 nanobot 之上增加了 Web 界面、多用户鉴权、团队工作区、权限控制与企业部署脚本等。**Agent 核心能力来自 HKUDS 团队的 nanobot 项目**，并非幻帧原创。
 
 本仓库内 `nanobot/` 基于上游代码集成并做了适配（如 `nanobot/adapter.py`）。若你分发本仓库，请保留 `nanobot/LICENSE` 及本文件中的署名说明。
 
@@ -52,13 +52,13 @@
 
 ## 5. 模型与 API 服务
 
-科吉通过配置连接 **DeepSeek、OpenAI、Anthropic** 等第三方 API。这些服务的使用受各平台**服务条款与计费政策**约束，与本仓库 MIT 许可无关。
+幻帧通过配置连接 **DeepSeek、OpenAI、Anthropic** 等第三方 API。这些服务的使用受各平台**服务条款与计费政策**约束，与本仓库 MIT 许可无关。
 
 ---
 
 ## 致谢摘要
 
-- **[HKUDS/nanobot](https://github.com/HKUDS/nanobot)** — 轻量级 Agent 框架，科吉的对话与工具引擎建立在其之上。
+- **[HKUDS/nanobot](https://github.com/HKUDS/nanobot)** — 轻量级 Agent 框架，幻帧的对话与工具引擎建立在其之上。
 - 其他开源依赖与技能作者 — 见各目录 LICENSE 文件。
 
 如有遗漏或需更正，欢迎提 Issue。

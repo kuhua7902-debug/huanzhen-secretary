@@ -4,7 +4,7 @@
 
 设计说明（2026-05 修复）：
   原来的实现每次调用都 `asyncio.new_event_loop()` 再 `close()`，有两个后果：
-  1. `KejiAdapter.chat()` 的调用参数写成了 `session_id=`，而真实签名是
+  1. `HuanzhenAdapter.chat()` 的调用参数写成了 `session_id=`，而真实签名是
      `chat(query, sid="", files=None)`，导致每次调用必然 TypeError，
      被 except 吞掉后固定回「抱歉，处理出错」——桥接实际完全不可用；
   2. Adapter 在「临时循环」里初始化、`create_task` 连接 MCP，循环随即关闭，
@@ -17,13 +17,13 @@ import logging
 import threading
 from typing import Optional
 
-from nanobot.adapter import KejiAdapter
+from nanobot.adapter import HuanzhenAdapter
 from core.wechat.ilink import ILinkClient, WeChatMessage
 
-logger = logging.getLogger("keji.wechat.bridge")
+logger = logging.getLogger("huanzhen.wechat.bridge")
 
 # ── 桥接专用常驻事件循环 ──
-# KejiAdapter 会在初始化时异步连接 MCP 服务，需要一个长期存活的循环。
+# HuanzhenAdapter 会在初始化时异步连接 MCP 服务，需要一个长期存活的循环。
 # 这里用后台守护线程跑 run_forever，所有调用通过 run_coroutine_threadsafe 提交。
 _LOOP: Optional[asyncio.AbstractEventLoop] = None
 _LOOP_LOCK = threading.Lock()
@@ -56,7 +56,7 @@ class WeChatBridge:
 
     def __init__(self, session_path: str = "data/wechat_session.json"):
         self.client = ILinkClient(session_path=session_path)
-        self.adapter: Optional[KejiAdapter] = None
+        self.adapter: Optional[HuanzhenAdapter] = None
         self._conv_map: dict[str, str] = {}  # wechat_user_id → huanzhen_conv_id
 
         # 注册回调
@@ -72,9 +72,9 @@ class WeChatBridge:
         # 在常驻循环里初始化 Adapter（会顺带异步连接 MCP 服务）
         try:
             self.adapter = _submit(self._init_adapter())
-            logger.info("KejiAdapter initialized")
+            logger.info("HuanzhenAdapter initialized")
         except Exception as e:
-            logger.error("KejiAdapter 初始化失败: %s", e)
+            logger.error("HuanzhenAdapter 初始化失败: %s", e)
             return False
 
         # 登录
@@ -88,7 +88,7 @@ class WeChatBridge:
         return True
 
     @staticmethod
-    async def _init_adapter() -> KejiAdapter:
+    async def _init_adapter() -> HuanzhenAdapter:
         from nanobot.adapter import get_adapter
 
         return await get_adapter()
@@ -117,7 +117,7 @@ class WeChatBridge:
         # 标注来源，便于审计里区分微信渠道的消息（无登录用户，按服务身份处理）
         set_request_context(actor="wechat", user_id="service", role="")
         adapter = self.adapter or await get_adapter()
-        # 注意：KejiAdapter.chat 的第二个参数名是 sid（不是 session_id）
+        # 注意：HuanzhenAdapter.chat 的第二个参数名是 sid（不是 session_id）
         return await adapter.chat(text, sid=conv_id)
 
     def _handle_message(self, msg: WeChatMessage):

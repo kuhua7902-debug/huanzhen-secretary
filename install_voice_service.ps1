@@ -11,7 +11,7 @@ Write-Host "  幻帧语音助手 - 开机自启动安装" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$ProjectDir = "D:\about_python\Keji_Nanobot\Keji-agent-main"
+$ProjectDir = $PSScriptRoot
 $BatPath = "$ProjectDir\启动幻帧语音助手.bat"
 $PythonExe = "$ProjectDir\venv\Scripts\python.exe"
 $TrayScript = "$ProjectDir\voice_tray.py"

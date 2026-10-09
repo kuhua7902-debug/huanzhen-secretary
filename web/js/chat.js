@@ -26,7 +26,7 @@ async function execCommand(cmd, args) {
     case '/clear':
       showDangerConfirm('删除对话', '确定删除当前对话？此操作不可恢复！', function() {
         if (currentConvId) {
-          kejiFetch('/api/conversations/' + currentConvId, { method: 'DELETE' }).catch(function(){});
+          huanzhenFetch('/api/conversations/' + currentConvId, { method: 'DELETE' }).catch(function(){});
         }
         conversationId = '';
         currentConvId = '';
@@ -52,7 +52,7 @@ async function fetchCommand(cmd, args) {
   var name = cmd.replace('/', '');
   var url = '/api/command/' + name;
   try {
-    var res = await kejiFetch(url);
+    var res = await huanzhenFetch(url);
     if (!res.ok) return null;
     var data = await res.json();
     return data.text || '(无输出)';
@@ -94,7 +94,7 @@ async function handleSlashInput(msg) {
     msgs.appendChild(statusEl);
     _autoScroll(msgs);
     try {
-      var res = await kejiFetch('/api/compact', {
+      var res = await huanzhenFetch('/api/compact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid })
@@ -123,7 +123,7 @@ async function handleSlashInput(msg) {
   // 技能命令
   if (cmd === '/skills') {
     try {
-      var res = await kejiFetch('/api/skills');
+      var res = await huanzhenFetch('/api/skills');
       if (!res.ok) { await showCommandResult(msg, '获取技能列表失败'); return { handled: true }; }
       var data = await res.json();
       var skills = data.skills || [];
@@ -150,7 +150,7 @@ async function handleSlashInput(msg) {
     var sid_use = sessionId || currentConvId || conversationId;
     if (!sid_use) { await showCommandResult(msg, '请先开始一段对话'); return { handled: true }; }
     try {
-      var res = await kejiFetch('/api/skills/activate', {
+      var res = await huanzhenFetch('/api/skills/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid_use, skill_name: skillName })
@@ -167,7 +167,7 @@ async function handleSlashInput(msg) {
     var sid_unload = sessionId || currentConvId || conversationId;
     if (!sid_unload) { await showCommandResult(msg, '没有激活的技能'); return { handled: true }; }
     try {
-      var res = await kejiFetch('/api/skills/deactivate', {
+      var res = await huanzhenFetch('/api/skills/deactivate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid_unload })
@@ -251,7 +251,7 @@ async function onQuickCmdClick(cmd) {
     msgs.appendChild(statusEl);
     _autoScroll(msgs);
     try {
-      var res = await kejiFetch('/api/compact', {
+      var res = await huanzhenFetch('/api/compact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid })
@@ -290,7 +290,7 @@ async function onQuickCmdSkills() {
   if (empty) empty.remove();
   addMessage('user', escHtml('/skills'));
   try {
-    var res = await kejiFetch('/api/skills');
+    var res = await huanzhenFetch('/api/skills');
     if (!res.ok) { addMessage('assistant', '获取技能列表失败'); _autoScroll(msgs); return; }
     var data = await res.json();
     var skills = data.skills || [];
@@ -316,7 +316,7 @@ async function onQuickCmdUse() {
   addMessage('user', escHtml('/use'));
   // 先列出可用技能，让用户选
   try {
-    var res = await kejiFetch('/api/skills');
+    var res = await huanzhenFetch('/api/skills');
     if (!res.ok) { addMessage('assistant', '获取技能列表失败'); _autoScroll(msgs); return; }
     var data = await res.json();
     var sks = data.skills || [];
@@ -338,7 +338,7 @@ async function onQuickCmdUnload() {
   var sid = sessionId || currentConvId || conversationId;
   if (!sid) { addMessage('assistant', '没有激活的技能'); _autoScroll(msgs); return; }
   try {
-    var res = await kejiFetch('/api/skills/deactivate', {
+    var res = await huanzhenFetch('/api/skills/deactivate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sid })
@@ -455,7 +455,7 @@ async function renderConvDetail() {
 
   // 拉取后端设置中的默认模型
   try {
-    var settings = await kejiFetch('/api/settings').then(function(r){ return r.ok ? r.json() : null; });
+    var settings = await huanzhenFetch('/api/settings').then(function(r){ return r.ok ? r.json() : null; });
     if (settings) {
       if (settings.chat_model) model = settings.chat_model;
       else if (settings.openai_model) model = settings.openai_model;
@@ -466,7 +466,7 @@ async function renderConvDetail() {
   // 拉取当前会话的消息数和创建时间
   if (sid) {
     try {
-      var resp = await kejiFetch('/api/conversations/' + sid);
+      var resp = await huanzhenFetch('/api/conversations/' + sid);
       if (resp.ok) {
         var d = await resp.json();
         if (d && d.messages) messageCount = d.messages.length;
@@ -570,7 +570,7 @@ async function quickClearSession() {
   }
   if (!confirm('确定要清空当前会话吗？此操作会删除所有消息，且不可恢复。')) return;
   try {
-    var resp = await kejiFetch('/api/conversations/' + sid, { method: 'DELETE' });
+    var resp = await huanzhenFetch('/api/conversations/' + sid, { method: 'DELETE' });
     if (resp.ok || resp.status === 204) {
       toast('会话已清空', 'success');
       // 重置前端会话状态并刷新界面
@@ -594,7 +594,7 @@ async function quickExportSession() {
     return;
   }
   try {
-    var resp = await kejiFetch('/api/conversations/' + sid);
+    var resp = await huanzhenFetch('/api/conversations/' + sid);
     if (!resp.ok) { toast('获取会话失败：HTTP ' + resp.status, 'error'); return; }
     var d = await resp.json();
     var msgs = (d && d.messages) || [];
@@ -798,7 +798,7 @@ function toggleSkillPreset(presetName) {
   var sid = sessionId || currentConvId || conversationId;
   if (!sid) { toast('请先开始一段对话', 'info'); return; }
 
-  kejiFetch('/api/skills/active', {
+  huanzhenFetch('/api/skills/active', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({session_id: sid})
   }).then(function(r){return r.json()}).then(function(d){
@@ -823,7 +823,7 @@ function toggleSkillPreset(presetName) {
       });
     }
 
-    return kejiFetch('/api/skills/set', {
+    return huanzhenFetch('/api/skills/set', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({session_id: sid, skills: newSkills})
     });
@@ -844,8 +844,8 @@ function loadSkillPanel() {
     sessionId = sid;
   }
   Promise.all([
-    kejiFetch('/api/skills').then(function(r){return r.json()}).then(function(d){return d.skills || [];}),
-    sid ? kejiFetch('/api/skills/active', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:sid})}).then(function(r){return r.json()}).then(function(d){return d.active_skills || []}).catch(function(){return [];}) : Promise.resolve([])
+    huanzhenFetch('/api/skills').then(function(r){return r.json()}).then(function(d){return d.skills || [];}),
+    sid ? huanzhenFetch('/api/skills/active', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:sid})}).then(function(r){return r.json()}).then(function(d){return d.active_skills || []}).catch(function(){return [];}) : Promise.resolve([])
   ]).then(function(results){
     var skills = results[0];
     var activeSkills = results[1] || [];
@@ -989,7 +989,7 @@ function hideSkillDesc(event, el) {
 function activateSkill(name) {
   var sid = sessionId || currentConvId || conversationId;
   if (!sid) { toast('请先开始一段对话', 'error'); return; }
-  kejiFetch('/api/skills/activate', {
+  huanzhenFetch('/api/skills/activate', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({session_id: sid, skill_name: name})
@@ -1002,7 +1002,7 @@ function activateSkill(name) {
 function deactivateSkill(name) {
   var sid = sessionId || currentConvId || conversationId;
   if (!sid) return;
-  kejiFetch('/api/skills/deactivate', {
+  huanzhenFetch('/api/skills/deactivate', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({session_id: sid, skill_name: name})
@@ -1016,7 +1016,7 @@ function deactivateSkill(name) {
 // 功能被历史面板（history.js 的 openHistory）取代，整体删除。
 
 function loadConversation(id) {
-  kejiFetch('/api/conversations/' + id).then(r => r.json()).then(d => {
+  huanzhenFetch('/api/conversations/' + id).then(r => r.json()).then(d => {
     currentConvId = id;
     conversationId = id;
     sessionId = id;  // ← 关键：让后续消息发到同一个会话
@@ -1083,7 +1083,7 @@ function uploadFileItem(file) {
   var formData = new FormData();
   formData.append('file', file);
 
-  kejiFetch('/api/upload', { method: 'POST', body: formData })
+  huanzhenFetch('/api/upload', { method: 'POST', body: formData })
     .then(function(r) {
       if (!r.ok) throw new Error('服务器返回: ' + r.status);
       return r.json();
@@ -1223,7 +1223,7 @@ async function sendChat() {
   input.style.height = 'auto';
 
   try {
-    const res = await kejiFetch('/chat/stream', {
+    const res = await huanzhenFetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

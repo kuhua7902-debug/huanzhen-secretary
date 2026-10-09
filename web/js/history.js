@@ -13,7 +13,7 @@ function closeHistory() {
 // 末尾那份同时改为 function 声明，避免删掉本定义后丢失函数提升、其他脚本调用 loadHistory 时报未定义。
 function loadConv(convId) {
   closeHistory();
-  kejiFetch('/api/conversations/'+convId).then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/conversations/'+convId).then(function(r){return r.json()}).then(function(d){
     var el = document.getElementById('chatMessages');
     if (!el) return;
     currentConvId = convId;
@@ -60,7 +60,7 @@ function showCtx(e, convId) {
 function closeCtx() { var m=document.getElementById('ctxMenu'); if(m)m.classList.remove('open'); }
 function delConv(id) {
   showDangerConfirm('删除对话', '确定要删除此对话吗？', function() {
-    kejiFetch('/api/conversations/'+id,{method:'DELETE'}).then(function(){closeHistory();loadHistory();});
+    huanzhenFetch('/api/conversations/'+id,{method:'DELETE'}).then(function(){closeHistory();loadHistory();});
   });
 }
 function addSplit2(convId) {
@@ -69,7 +69,7 @@ function addSplit2(convId) {
   var msgs = document.getElementById('splitMessages');
   if (!panel || !msgs) return;
   msgs.innerHTML = '';
-  kejiFetch('/api/conversations/' + convId).then(function(r){ return r.json(); }).then(function(d){
+  huanzhenFetch('/api/conversations/' + convId).then(function(r){ return r.json(); }).then(function(d){
     if (d.messages && d.messages.length) {
       d.messages.forEach(function(m){
         var div = document.createElement('div');
@@ -103,7 +103,7 @@ function stopStreaming() {
   //       现在改为 URL 查询参数（后端同时兼容 body，保持向前兼容），并带上会话 id。
   var sid = sessionId || currentConvId || conversationId || '';
   var cid = currentConvId || conversationId || '';
-  kejiFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
+  huanzhenFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
     method: "POST"
   }).catch(function(){});
   document.getElementById("stopBtn").style.display = "none";
@@ -117,7 +117,7 @@ function stopSplitStreaming() {
   // 修复：同上，改走查询参数；分屏优先用自己的 splitConvId
   var sid = sessionId || splitConvId || currentConvId || conversationId || '';
   var cid = splitConvId || currentConvId || conversationId || '';
-  kejiFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
+  huanzhenFetch("/chat/stop?session_id=" + encodeURIComponent(sid) + "&conversation_id=" + encodeURIComponent(cid), {
     method: "POST"
   }).catch(function(){});
   document.getElementById("splitStopBtn").style.display = "none";
@@ -161,7 +161,7 @@ function sendSplitChat() {
 
   // 发送流式请求
   var convId = splitConvId || '';
-  kejiFetch('/chat/stream', {
+  huanzhenFetch('/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -324,7 +324,7 @@ function deleteSelected() {
   if (ids.length === 0) { showAlert('提示', '请先勾选要删除的对话'); return; }
   showDangerConfirm('批量删除对话', '确定删除选中的 ' + ids.length + ' 个对话吗？', function() {
     Promise.all(ids.map(function(id) {
-      return kejiFetch('/api/conversations/' + id, { method: 'DELETE' });
+      return huanzhenFetch('/api/conversations/' + id, { method: 'DELETE' });
     })).then(function() {
       loadHistory();
       if (currentConvId && ids.indexOf(currentConvId) >= 0) newChat();
@@ -334,12 +334,12 @@ function deleteSelected() {
 
 function deleteAllHistory() {
   showDangerConfirm('删除全部对话', '确定删除全部对话吗？此操作不可恢复！', function() {
-    kejiFetch('/api/conversations').then(function(r){return r.json()}).then(function(d){
+    huanzhenFetch('/api/conversations').then(function(r){return r.json()}).then(function(d){
       var arr = d.conversations||[];
       if (!arr.length) { showAlert('提示', '没有可删除的对话'); return; }
       showDangerConfirm('再次确认', '共 ' + arr.length + ' 个对话，确定全部删除？', function() {
         Promise.all(arr.map(function(c) {
-          return kejiFetch('/api/conversations/' + c.id, { method: 'DELETE' });
+          return huanzhenFetch('/api/conversations/' + c.id, { method: 'DELETE' });
         })).then(function() {
           loadHistory();
           newChat();
@@ -356,7 +356,7 @@ function loadHistory() {
   var list = document.getElementById('historyList');
   if (!list) return;
   list.innerHTML = '<div style="text-align:center;padding:20px;color:#999">加载中...</div>';
-  kejiFetch('/api/conversations').then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/conversations').then(function(r){return r.json()}).then(function(d){
     var arr = d.conversations||[];
     if (!arr.length) { list.innerHTML = '<div style="text-align:center;padding:30px;color:#999">暂无对话</div>'; return; }
     list.innerHTML = arr.map(function(c){

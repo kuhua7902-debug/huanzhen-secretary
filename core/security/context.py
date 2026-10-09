@@ -15,7 +15,7 @@ class RequestContext:
     role: str = ""
 
 
-_ctx: ContextVar[RequestContext | None] = ContextVar("keji_request_ctx", default=None)
+_ctx: ContextVar[RequestContext | None] = ContextVar("huanzhen_request_ctx", default=None)
 
 
 def set_request_context(

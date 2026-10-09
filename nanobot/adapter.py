@@ -86,10 +86,14 @@ def load_config() -> dict:
     return load_app_config(_PROJECT_ROOT / "config.yaml")
 
 
-def _make_provider(config: dict) -> tuple[LLMProvider, str, int]:
-    """从 config.yaml 读取模型配置，作为唯一真实来源"""
+def _make_provider(config: dict, provider_name: str | None = None) -> tuple[LLMProvider, str, int]:
+    """从 config.yaml 读取模型配置，作为唯一真实来源。
+
+    provider_name 为空时使用 models.default；传入 models 段下的某个键
+    （如 deepseek / openai / ollama / zhipu）即可为「按会话切换模型」构建对应 provider。
+    """
     models_cfg = config.get("models", {})
-    default = models_cfg.get("default", "ollama")
+    default = (provider_name or "").strip() or models_cfg.get("default", "ollama")
     provider_cfg = models_cfg.get(default, {})
 
     base_url = (provider_cfg.get("base_url") or "").rstrip("/")
@@ -269,9 +273,30 @@ class TranslatorProvider(LLMProvider):
 # ── SSE Hook ──
 
 class SSEHook(AgentHook):
+    """把引擎生命周期事件翻译成 SSE 事件。
+
+    事件类型（前端契约）：
+      thinking / think_token / answer / error / done            —— 原有
+      selfcheck_start / selfcheck_result                        —— 合规自检
+      tool_call / tool_result                                   —— 结构化工具调用（新增）
+      system_notice                                             —— 系统提示（由 chat_stream 直接发）
+
+    关于 tool_call / tool_result：
+      此前只有"把工具名拼成文本塞进 think_token"的做法，前端无法渲染工具卡片。
+      现在改为**同时**发结构化事件：
+        - 新前端用结构化的 tool_call / tool_result 渲染可折叠工具卡片；
+        - 旧前端与飞书桥接仍读 think_token 里的文本提示，保持兼容。
+      兼容文本可以后续删除（需同步更新 web/ 与 nanobot/feishu_bridge.py）。
+    """
+
+    # 单条工具参数/结果在 SSE 里的最大长度（避免事件过大拖慢流）
+    MAX_ARG_CHARS = 400
+    MAX_PREVIEW_CHARS = 600
+
     def __init__(self, q: asyncio.Queue):
         super().__init__(); self.q = q
         self.thinking_content = ""  # 累积所有思考 token
+        self._round = 0
     def wants_streaming(self) -> bool: return True
 
     def emit(self, phase: str, **data) -> None:
@@ -282,41 +307,92 @@ class SSEHook(AgentHook):
             pass
 
     async def before_iteration(self, ctx: AgentHookContext) -> None:
-        await self.q.put(json.dumps({"phase": "thinking", "round": ctx.iteration + 1}, ensure_ascii=False))
+        self._round = ctx.iteration + 1
+        await self.q.put(json.dumps({"phase": "thinking", "round": self._round}, ensure_ascii=False))
 
     async def on_stream(self, ctx: AgentHookContext, delta: str) -> None:
         if delta:
             self.thinking_content += delta
             await self.q.put(json.dumps({"phase": "think_token", "token": delta}, ensure_ascii=False))
 
-    async def before_execute_tools(self, ctx: AgentHookContext) -> None:
-        tools = [tc.name for tc in ctx.tool_calls]
-        # 尝试从参数中提取实际工具名（__tool__ 的分发目标）
-        actual_names = []
-        for tc in ctx.tool_calls:
+    # ── 工具调用名解析：__tool__ 分发器要显示真实目标工具 ──
+
+    @staticmethod
+    def _tool_name(tc) -> str:
+        if tc.name == "__tool__":
             args = tc.arguments or {}
-            actual = args.get("tool", tc.name)
-            actual_names.append(actual)
+            return str(args.get("tool") or tc.name)
+        return tc.name or ""
+
+    @classmethod
+    def _safe_args(cls, tc) -> dict:
+        args = tc.arguments or {}
+        if not isinstance(args, dict):
+            return {"_raw": str(args)[: cls.MAX_ARG_CHARS]}
+        out = {}
+        for k, v in list(args.items())[:12]:
+            s = v if isinstance(v, (int, float, bool)) or v is None else str(v)
+            if isinstance(s, str) and len(s) > cls.MAX_ARG_CHARS:
+                s = s[: cls.MAX_ARG_CHARS] + "…"
+            out[str(k)] = s
+        return out
+
+    async def before_execute_tools(self, ctx: AgentHookContext) -> None:
+        calls = list(ctx.tool_calls or [])
+
+        # ① 结构化事件：新前端据此渲染工具卡片
+        tools_payload = []
+        for i, tc in enumerate(calls):
+            tools_payload.append({
+                "id": getattr(tc, "id", "") or f"call_{i}",
+                "name": self._tool_name(tc),
+                "raw_name": tc.name,
+                "args": self._safe_args(tc),
+            })
+        if tools_payload:
+            await self.q.put(json.dumps({
+                "phase": "tool_call", "round": self._round, "tools": tools_payload,
+            }, ensure_ascii=False))
+
+        # ② 兼容文本（旧前端 web/ 与飞书桥接仍依赖）
         counts = {}
-        for t in actual_names:
+        for t in (t["name"] for t in tools_payload):
             counts[t] = counts.get(t, 0) + 1
         summary = ", ".join(f"{t}×{c}" if c > 1 else t for t, c in counts.items())
-        msg = f"\n🔧 调用工具: {summary}\n"
-        await self.q.put(json.dumps({"phase": "think_token", "token": msg}, ensure_ascii=False))
+        if summary:
+            msg = f"\n🔧 调用工具: {summary}\n"
+            await self.q.put(json.dumps({"phase": "think_token", "token": msg}, ensure_ascii=False))
 
     async def after_iteration(self, ctx: AgentHookContext) -> None:
-        # 显示工具结果
-        actual_names = []
-        for tc in ctx.tool_calls:
-            args = tc.arguments or {}
-            actual = args.get("tool", tc.name)
-            actual_names.append(actual)
-        lines = []
-        for i, r in enumerate(ctx.tool_results or []):
-            raw = str(r) if r is not None else ""
-            n = actual_names[i] if i < len(actual_names) else "?"
-            short = raw[:200]
-            lines.append(f"  [{n}] {short}")
+        calls = list(ctx.tool_calls or [])
+        results = list(ctx.tool_results or [])
+        events = list(ctx.tool_events or [])
+        if not results:
+            return
+
+        # ① 结构化结果：与 tool_call 按 id/顺序对应
+        payload = []
+        for i, raw in enumerate(results):
+            tc = calls[i] if i < len(calls) else None
+            ev = events[i] if i < len(events) else {}
+            text = "" if raw is None else str(raw)
+            preview = text
+            truncated = False
+            if len(preview) > self.MAX_PREVIEW_CHARS:
+                preview = preview[: self.MAX_PREVIEW_CHARS]
+                truncated = True
+            payload.append({
+                "id": (getattr(tc, "id", "") or f"call_{i}") if tc else f"call_{i}",
+                "name": self._tool_name(tc) if tc else str(ev.get("name") or "?"),
+                "status": str(ev.get("status") or "ok"),
+                "duration_ms": int(ev.get("duration_ms") or 0),
+                "preview": preview,
+                "truncated": truncated,
+            })
+        await self.q.put(json.dumps({"phase": "tool_result", "results": payload}, ensure_ascii=False))
+
+        # ② 兼容文本（旧前端把工具结果读成思考流的一部分）
+        lines = [f"  [{p['name']}] {p['preview'][:200]}" for p in payload]
         if lines:
             msg = "\n".join(lines) + "\n"
             await self.q.put(json.dumps({"phase": "think_token", "token": msg}, ensure_ascii=False))
@@ -702,12 +778,14 @@ class _LazyTool(Tool):
 
 # ── Adapter ──
 
-class KejiAdapter:
+class HuanzhenAdapter:
     def __init__(self):
         self.config = load_config()
         self.project_root = _PROJECT_ROOT
         raw_provider, self.model, ctx_window = _make_provider(self.config)
         self.provider = TranslatorProvider(raw_provider)
+        # 按会话切换模型：provider_key -> (provider, model_id) 缓存，避免每轮重建
+        self._provider_cache: dict[str, tuple[Any, str]] = {}
         self.session_manager = SessionManager(self.project_root)
 
         # 全量工具注册表（用于执行）
@@ -723,7 +801,7 @@ class KejiAdapter:
             self._mcp_task = asyncio.create_task(self._connect_mcp_servers())
         except Exception:
             pass
-        logger.info("KejiAdapter ready: {} tools total, {} native + __tool__ dispatcher",
+        logger.info("HuanzhenAdapter ready: {} tools total, {} native + __tool__ dispatcher",
                     len(self.tools._tools), len(self.lazy_tools._tools) - 1)
 
         # 技能系统：按 session_id 记录已激活的技能名列表
@@ -764,12 +842,12 @@ class KejiAdapter:
         if sid and sid not in self._active_skills:
             self._active_skills[sid] = list(self._default_skills)
 
-    def _make_cost_callback(self, session_key: str):
+    def _make_cost_callback(self, session_key: str, model: str | None = None):
         """创建一个成本回调闭包，将工具调用统计写入数据库。
 
         返回一个 async callable，兼容 runner.py 的 cost_callback 接口。
         """
-        model = self.model
+        model = model or self.model
         async def _cb(tool_name="", status="", duration_ms=0,
                       prompt_tokens=0, completion_tokens=0, cached_tokens=0,
                       estimated_cost=0.0, model=model, session_key=session_key,
@@ -1061,11 +1139,12 @@ class KejiAdapter:
             project_root=self.project_root,
             config=self.config,
         ))
-        from nanobot.adapter_tools import register_keji_tools
-        register_keji_tools(t, self.project_root)
+        from nanobot.adapter_tools import register_huanzhen_tools
+        register_huanzhen_tools(t, self.project_root)
         return t
 
-    def _build_msgs(self, query: str, sid: str = "", files: list[str] | None = None):
+    def _build_msgs(self, query: str, sid: str = "", files: list[str] | None = None,
+                    workspace: str | None = None):
         content = query
         if files:
             content += "\n\n上传文件:\n" + "\n".join(f"- {f}" for f in files)
@@ -1090,6 +1169,14 @@ class KejiAdapter:
                 f"{dirs_text}\n"
                 "查询完整列表可调用工具 `list_allowed_directories`（优先于 MCP 同名工具）。"
                 "列目录请使用绝对路径或 `knowledge`/`data` 等相对路径，勿对 `glob` 使用 `.`（表示项目根，可能越界）。"
+            )
+        ws = (workspace or "").strip()
+        if ws:
+            sys_prompt += (
+                "\n\n## 本次对话的工作空间\n"
+                f"用户已把本次对话的工作目录指定为：`{ws}`\n"
+                "涉及文件的任务请**优先在该目录内完成**：读取、整理、生成产物都放这里；"
+                "除非用户明确指定其他路径，否则不要越界到别处。"
             )
         try:
             from core.security.permissions import resolve_current_user, role_permission_hint
@@ -1152,7 +1239,7 @@ class KejiAdapter:
             role=ctx.role,
         )
 
-    def _prepare_run_result_usage(self, run_result, *, thinking: str = "") -> None:
+    def _prepare_run_result_usage(self, run_result, *, thinking: str = "", model: str | None = None) -> None:
         """补全 run_result.usage（流式未返回时估算，保留 cached_tokens）。"""
         if not run_result:
             return
@@ -1172,7 +1259,7 @@ class KejiAdapter:
         run_result.usage = _ensure_usage(
             run_result.usage,
             inner,
-            self.model,
+            model or self.model,
             run_result.messages or [],
             None,
             reply,
@@ -1182,18 +1269,45 @@ class KejiAdapter:
         if original.get("prompt_tokens") and original.get("completion_tokens"):
             run_result.usage["source"] = "api"
 
-    async def chat(self, query: str, sid: str = "", files: list[str] | None = None) -> str:
+    def _resolve_provider(self, provider_key: str | None):
+        """按模型键解析 provider；为空/未知时回退到默认模型。
+
+        返回 (provider, model_id)，支撑「在对话框里切换对话模型」。
+        """
+        key = (provider_key or "").strip()
+        default_key = (self.config.get("models", {}) or {}).get("default", "")
+        if not key or key == default_key:
+            return self.provider, self.model
+        if key in self._provider_cache:
+            return self._provider_cache[key]
+        models_cfg = self.config.get("models", {}) or {}
+        if key not in models_cfg:
+            logger.warning("未知模型键 {}，回退默认模型 {}", key, default_key)
+            return self.provider, self.model
+        try:
+            raw, model_id, _ctx = _make_provider(self.config, key)
+            entry = (TranslatorProvider(raw), model_id)
+            self._provider_cache[key] = entry
+            logger.info("已按请求切换模型: {} -> {}", key, model_id)
+            return entry
+        except Exception as e:
+            logger.error("构建模型 {} 失败，回退默认: {}", key, e)
+            return self.provider, self.model
+
+    async def chat(self, query: str, sid: str = "", files: list[str] | None = None,
+                   model: str | None = None, workspace: str | None = None) -> str:
         sk_pre = sid or "cli:default"
         await self._prepare_session_for_chat(sk_pre)
-        msgs, sk = self._build_msgs(query, sid, files)
+        msgs, sk = self._build_msgs(query, sid, files, workspace)
         self._merge_request_context(sk)
-        runner = AgentRunner(self.provider)
+        provider, model_id = self._resolve_provider(model)
+        runner = AgentRunner(provider)
         agent_cfg = self.config.get("agent", {})
-        cost_cb = self._make_cost_callback(sk)
+        cost_cb = self._make_cost_callback(sk, model_id)
         role_hook = RolePermissionHook()
         compliance = ComplianceHook(self.tools, self.project_root, self.config)
         r = await runner.run(AgentRunSpec(
-            initial_messages=msgs, tools=self.lazy_tools, model=self.model,
+            initial_messages=msgs, tools=self.lazy_tools, model=model_id,
             max_iterations=self.max_iterations, max_tool_result_chars=self.max_tool_result_chars,
             hook=CompositeHook([role_hook, compliance]),
             tool_timeout_s=agent_cfg.get("tool_timeout", 120),
@@ -1214,15 +1328,17 @@ class KejiAdapter:
                     _tc_json = _j.dumps(m["tool_calls"], ensure_ascii=False)
                 break
         from core.chat_persist import persist_chat_turn
-        self._prepare_run_result_usage(r)
+        self._prepare_run_result_usage(r, model=model_id)
         persist_chat_turn(self.session_manager, sk, query, r, thinking="")
         return reply
 
-    async def chat_stream(self, query: str, sid: str = "", files: list[str] | None = None) -> AsyncGenerator[str, None]:
+    async def chat_stream(self, query: str, sid: str = "", files: list[str] | None = None,
+                          model: str | None = None, workspace: str | None = None) -> AsyncGenerator[str, None]:
         sk_pre = sid or "cli:default"
         compact_note = await self._prepare_session_for_chat(sk_pre)
-        msgs, sk = self._build_msgs(query, sid, files)
+        msgs, sk = self._build_msgs(query, sid, files, workspace)
         self._merge_request_context(sk)
+        provider, model_id = self._resolve_provider(model)
         q: asyncio.Queue[str] = asyncio.Queue()
         if compact_note:
             await q.put(json.dumps({"phase": "system_notice", "message": compact_note}, ensure_ascii=False))
@@ -1230,9 +1346,13 @@ class KejiAdapter:
         sse_hook = SSEHook(q)
         role_hook = RolePermissionHook()
         compliance_hook = ComplianceHook(self.tools, self.project_root, self.config, sse_hook=sse_hook)
-        hook = CompositeHook([sse_hook, role_hook, compliance_hook])
+        # ⚠️ 顺序很重要：RolePermissionHook 会剔除角色不允许的工具，
+        # ComplianceHook 在自检失败时会清空 tool_calls。
+        # SSEHook 必须排在它们**之后**，否则发给前端的 tool_call 事件会包含
+        # "本来要调用、但随后被拦下"的工具，前端会显示实际并未执行的卡片。
+        hook = CompositeHook([role_hook, compliance_hook, sse_hook])
 
-        cost_cb = self._make_cost_callback(sk)
+        cost_cb = self._make_cost_callback(sk, model_id)
         async def run():
             agent_cfg = self.config.get("agent", {})
             cancel_ev = asyncio.Event()
@@ -1248,8 +1368,8 @@ class KejiAdapter:
             reply = ""
             run_result = None
             try:
-                run_result = await AgentRunner(self.provider).run(AgentRunSpec(
-                    initial_messages=msgs, tools=self.lazy_tools, model=self.model,
+                run_result = await AgentRunner(provider).run(AgentRunSpec(
+                    initial_messages=msgs, tools=self.lazy_tools, model=model_id,
                     max_iterations=self.max_iterations, max_tool_result_chars=self.max_tool_result_chars,
                     hook=hook,
                     tool_timeout_s=agent_cfg.get("tool_timeout", 120),
@@ -1275,7 +1395,7 @@ class KejiAdapter:
                         if hasattr(sse_hook, "thinking_content")
                         else ""
                     )
-                    self._prepare_run_result_usage(run_result, thinking=thinking)
+                    self._prepare_run_result_usage(run_result, thinking=thinking, model=model_id)
                     persist_chat_turn(
                         self.session_manager, sk, query, run_result, thinking=thinking
                     )
@@ -1301,11 +1421,11 @@ class KejiAdapter:
         s.clear(); self.session_manager.save(s)
 
 
-adapter: KejiAdapter | None = None
+adapter: HuanzhenAdapter | None = None
 
 
-async def get_adapter() -> KejiAdapter:
+async def get_adapter() -> HuanzhenAdapter:
     global adapter
     if adapter is None:
-        adapter = KejiAdapter()
+        adapter = HuanzhenAdapter()
     return adapter

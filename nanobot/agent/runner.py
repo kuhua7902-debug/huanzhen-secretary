@@ -930,6 +930,7 @@ class AgentRunner:
                     "name": tool_call.name,
                     "status": "cancelled",
                     "detail": "用户已中断对话",
+                    "duration_ms": int((_time.monotonic() - _t0) * 1000),
                 }
                 return "操作已取消（用户已中断对话）", event, None
             try:
@@ -973,6 +974,7 @@ class AgentRunner:
                 "name": tool_call.name,
                 "status": "error",
                 "detail": str(exc),
+                "duration_ms": _duration_ms,
             }
             if isinstance(exc, AskUserInterrupt):
                 event["status"] = "waiting"
@@ -1000,6 +1002,7 @@ class AgentRunner:
                 "name": tool_call.name,
                 "status": "error",
                 "detail": result.replace("\n", " ").strip()[:120],
+                "duration_ms": _duration_ms,
             }
             handled = self._classify_violation(
                 raw_text=result,
@@ -1025,7 +1028,12 @@ class AgentRunner:
         elif len(detail) > 120:
             detail = detail[:120] + "..."
         self._report_tool_cost(spec, tool_call.name, "ok", _duration_ms)
-        return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
+        return result, {
+            "name": tool_call.name,
+            "status": "ok",
+            "detail": detail,
+            "duration_ms": _duration_ms,
+        }, None
 
     # SSRF remains fatal; workspace path boundaries are soft + throttled.
     _SSRF_MARKER: str = "internal/private url detected"

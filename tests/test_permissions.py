@@ -239,7 +239,7 @@ def test_resolve_current_user_builds_user_from_context():
 def test_resolve_current_user_falls_back_to_db_for_unknown_role(monkeypatch):
     """风险：上下文里 role 非标准（旧客户端）时必须查库校验，且要检查 is_active。
 
-    这里用桩数据库，避免触碰真实 data/keji.db。
+    这里用桩数据库，避免触碰真实 data/huanzhen.db。
     """
 
     class _StubDB:

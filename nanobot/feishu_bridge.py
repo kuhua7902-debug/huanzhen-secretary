@@ -1,10 +1,10 @@
-"""飞书(Lark) ↔ KejiAdapter 桥接层
+"""飞书(Lark) ↔ HuanzhenAdapter 桥接层
 
-将飞书渠道收到的消息路由到 KejiAdapter 的 chat/chat_stream，
+将飞书渠道收到的消息路由到 HuanzhenAdapter 的 chat/chat_stream，
 并把回复通过 FeishuChannel 的 CardKit 流式推送发回手机端。
 
 设计原则：
-- 不侵入 KejiAdapter 现有逻辑，Web 聊天不受影响
+- 不侵入 HuanzhenAdapter 现有逻辑，Web 聊天不受影响
 - 利用 FeishuChannel 已有的 WebSocket 长连接、消息解析、媒体下载
 - 流式输出复用 chat_stream() 的 SSE 事件流，翻译为 CardKit 打字机效果
 """
@@ -21,13 +21,13 @@ from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 
 if TYPE_CHECKING:
-    from nanobot.adapter import KejiAdapter
+    from nanobot.adapter import HuanzhenAdapter
 
 
 class FeishuBridge:
-    """将飞书消息路由到 KejiAdapter 并返回回复"""
+    """将飞书消息路由到 HuanzhenAdapter 并返回回复"""
 
-    def __init__(self, adapter: KejiAdapter) -> None:
+    def __init__(self, adapter: HuanzhenAdapter) -> None:
         self.adapter = adapter
         self.bus = MessageBus()
         self.channel: Any = None  # FeishuChannel 实例
@@ -38,7 +38,7 @@ class FeishuBridge:
         self._session_locks: dict[str, asyncio.Lock] = {}
 
     async def start(self) -> None:
-        """启动飞书桥接：从 Keji 配置读取飞书渠道配置并启动"""
+        """启动飞书桥接：从 Huanzhen 配置读取飞书渠道配置并启动"""
         feishu_cfg = self.adapter.config.get("channels", {}).get("feishu", {})
         if not feishu_cfg.get("enabled"):
             logger.info("飞书渠道未启用（channels.feishu.enabled = false），跳过")

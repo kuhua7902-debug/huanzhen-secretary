@@ -30,10 +30,10 @@ DASHSCOPE_API_KEY=...
 
 - 用户密码用 **bcrypt** 加盐哈希存储（`core/security/users.py`）
 - 登录后签发 **JWT（HS256）**，默认有效期 72 小时，密钥来自
-  `HUANZHEN_JWT_SECRET` / `KEJI_JWT_SECRET` / `security.jwt_secret`；
+  `HUANZHEN_JWT_SECRET` / `security.jwt_secret`（历史别名 `KEJI_JWT_SECRET` 仍兼容）；
     都未配置时会在 `data/security/jwt_secret` 生成一个随机密钥
     （注意：该文件丢失会导致所有已签发 token 立即失效）
-- 可选服务级 **API Key**（`HUANZHEN_API_KEY` / `KEJI_API_KEY`），用于脚本/服务调用
+- 可选服务级 **API Key**（`HUANZHEN_API_KEY`，历史别名 `KEJI_API_KEY` 仍兼容），用于脚本/服务调用
 - 认证模式 `security.auth_mode`：`both`（默认）/ `user_only` / `api_key_only`
 - `security.allow_localhost_without_auth` 默认 `false`。**若设为 `true`，本机请求将
   以 admin 身份免认证通过** —— 仅在完全可信的单机环境使用
@@ -106,7 +106,7 @@ data/workspace/
 # core/path_policy.py::run_code_sandbox_preamble
 _orig_open = open
 def open(file, mode="r", *args, **kwargs):
-    if 模式含 rwa+x: _keji_guard_path(file)
+    if 模式含 rwa+x: _huanzhen_guard_path(file)
     return _orig_open(file, mode, *args, **kwargs)
 ```
 

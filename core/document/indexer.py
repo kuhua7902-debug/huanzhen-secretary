@@ -14,7 +14,7 @@ from core.database.db import get_db
 from core.rag.vector_store import get_vector_store
 from core.logger import setup_logger
 
-logger = setup_logger("keji.indexer")
+logger = setup_logger("huanzhen.indexer")
 
 _index_executor = ThreadPoolExecutor(max_workers=4)
 

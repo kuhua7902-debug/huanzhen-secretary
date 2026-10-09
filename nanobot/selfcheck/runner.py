@@ -246,7 +246,7 @@ class SelfCheckRunner:
             from core.database.db import get_db
             db = get_db()
             convs = db.list_conversations(limit=1)
-            return r.ok(f"✓ keji.db 正常（{len(convs)} 条对话）")
+            return r.ok(f"✓ huanzhen.db 正常（{len(convs)} 条对话）")
         except ImportError as e:
             return r.fail(f"模块导入失败: {e}")
 

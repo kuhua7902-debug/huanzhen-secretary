@@ -37,7 +37,7 @@ def deterministic_jwt(monkeypatch):
     import core.security.users as users
 
     monkeypatch.setattr(users, "load_app_config", lambda *a, **k: {})
-    monkeypatch.setenv("KEJI_JWT_SECRET", TEST_SECRET)
+    monkeypatch.setenv("HUANZHEN_JWT_SECRET", TEST_SECRET)
     return users
 
 
@@ -134,7 +134,7 @@ def test_jwt_tampered_payload_decodes_to_none(deterministic_jwt):
 def test_jwt_signed_with_other_secret_decodes_to_none(deterministic_jwt, monkeypatch):
     """风险（核心）：换密钥签发的 token 必须被拒（否则任何人自签 admin 即可越权）。"""
     token, _ = create_access_token("u1", "u", "admin")
-    monkeypatch.setenv("KEJI_JWT_SECRET", "another-secret-entirely-0000000000")
+    monkeypatch.setenv("HUANZHEN_JWT_SECRET", "another-secret-entirely-0000000000")
     assert decode_access_token(token) is None
 
 
@@ -149,7 +149,7 @@ def test_expired_token_decodes_to_none(monkeypatch):
     import core.security.users as users
 
     monkeypatch.setattr(users, "load_app_config", lambda *a, **k: {})
-    monkeypatch.setenv("KEJI_JWT_SECRET", TEST_SECRET)
+    monkeypatch.setenv("HUANZHEN_JWT_SECRET", TEST_SECRET)
     # hours = -1 → exp 在过去
     monkeypatch.setattr(users, "_jwt_settings", lambda: (TEST_SECRET, -1))
 
@@ -158,11 +158,11 @@ def test_expired_token_decodes_to_none(monkeypatch):
 
 
 def test_jwt_secret_comes_from_env_when_config_is_empty(monkeypatch):
-    """风险：env 里的 KEJI_JWT_SECRET 被忽略 → 部署时改密钥不生效（多实例互相不认）。"""
+    """风险：env 里的 HUANZHEN_JWT_SECRET 被忽略 → 部署时改密钥不生效（多实例互相不认）。"""
     import core.security.users as users
 
     monkeypatch.setattr(users, "load_app_config", lambda *a, **k: {})
-    monkeypatch.setenv("KEJI_JWT_SECRET", "env-secret-0000000000000000000000")
+    monkeypatch.setenv("HUANZHEN_JWT_SECRET", "env-secret-0000000000000000000000")
     assert users._jwt_settings()[0] == "env-secret-0000000000000000000000"
 
 
@@ -362,7 +362,7 @@ def _stub_request(user):
 
 @pytest.fixture
 def chat_session_module(monkeypatch, tmp_db):
-    """把 chat_session 的 ``get_db`` 指向临时库，避免写真实 data/keji.db。"""
+    """把 chat_session 的 ``get_db`` 指向临时库，避免写真实 data/huanzhen.db。"""
     import core.security.chat_session as cs
     import core.database.db as dbmod
 

@@ -22,7 +22,7 @@ from typing import Optional
 
 from core.logger import setup_logger
 
-logger = setup_logger("keji.db_tools")
+logger = setup_logger("huanzhen.db_tools")
 
 # 连接持久化目录（CLI 子进程模式）
 _CONN_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "db_connections")

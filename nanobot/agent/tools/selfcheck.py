@@ -33,7 +33,7 @@ class SelfCheckTool(Tool):
     def description(self) -> str:
         return (
             "运行系统全面自检，检查所有关键组件是否正常。\n"
-            "检查项：工具可达性、MCP服务器、数据库(keji.db)、"
+            "检查项：工具可达性、MCP服务器、数据库(huanzhen.db)、"
             "向量存储(ChromaDB)、Ollama服务、文件系统(data/)、配置完整性。\n"
             "当用户要求自检、或你发现工具有异常时，调用此工具。\n"
             "结果会同时保存到 data/selfcheck/latest.json。"

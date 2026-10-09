@@ -1,7 +1,7 @@
 """幻帧测试套件共享夹具。
 
 设计原则（很重要，改动前请先读）：
-1. **绝不允许测试触碰真实用户数据**：``data/keji.db``、``data/workspace``、
+1. **绝不允许测试触碰真实用户数据**：``data/huanzhen.db``、``data/workspace``、
    ``sessions/`` 都是真人数据。任何落盘操作都必须走 ``tmp_path``，
    任何工作区/数据库路径都必须被 monkeypatch 重定向。
 2. **绝不发起真实网络请求**：被测代码里凡是会连 Ollama(11434) / 外部 API 的
@@ -92,10 +92,10 @@ def workspace_files(temp_workspace):
 
 @pytest.fixture
 def tmp_db(tmp_path):
-    """临时 SQLite 库（绝不复用 ``data/keji.db``）。"""
+    """临时 SQLite 库（绝不复用 ``data/huanzhen.db``）。"""
     from core.database.db import Database
 
-    return Database(str(tmp_path / "keji_test.db"))
+    return Database(str(tmp_path / "huanzhen_test.db"))
 
 
 @pytest.fixture

@@ -24,6 +24,11 @@ _DEFAULT_PUBLIC_PREFIXES = (
     "/health",
     "/favicon.ico",
     "/static",
+    # 新版前端（Vite 构建产物）的静态资源：web/dist/assets/*，
+    # 必须公开，否则 SPA 的 js/css 会被鉴权拦成 401、页面白屏。
+    "/assets",
+    # 首页（未登录）用于展示概览数字的只读接口，仅返回计数，无敏感信息
+    "/api/public",
     "/api/security/status",
     "/api/auth/login",
     "/api/work",
@@ -49,7 +54,7 @@ def _read_or_create_api_key() -> str:
     _KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
     _KEY_FILE.write_text(key, encoding="utf-8")
     logger.warning(
-        "已生成本地 API Key（请妥善保管）: {} — 建议设置环境变量 KEJI_API_KEY 覆盖",
+        "已生成本地 API Key（请妥善保管）: {} — 建议设置环境变量 HUANZHEN_API_KEY 覆盖",
         _KEY_FILE,
     )
     return key
@@ -63,13 +68,13 @@ def get_security_settings(reload: bool = False) -> SecuritySettings:
     cfg = load_app_config()
     sec = cfg.get("security") or {}
     enabled = bool(sec.get("enabled", True))
-    raw_key = sec.get("api_key", "${KEJI_API_KEY}")
+    raw_key = sec.get("api_key", "${HUANZHEN_API_KEY}")
     if isinstance(raw_key, str):
         api_key = resolve_env_ref(raw_key) if raw_key.startswith("${") else raw_key
     else:
         api_key = ""
 
-    # 兼容 HUANZHEN_API_KEY（新）与 KEJI_API_KEY（旧）
+    # 兼容 HUANZHEN_API_KEY（当前）与历史 KEJI_API_KEY（兜底别名）
     if not api_key:
         api_key = env_alias("API_KEY")
 

@@ -46,7 +46,7 @@ def _read_or_create_jwt_secret() -> str:
     _JWT_SECRET_FILE.write_text(secret, encoding="utf-8")
     _jwt_secret_runtime = secret
     logger.warning(
-        "已生成本地 JWT 密钥: {} — 建议设置 KEJI_JWT_SECRET 或 security.jwt_secret",
+        "已生成本地 JWT 密钥: {} — 建议设置 HUANZHEN_JWT_SECRET 或 security.jwt_secret",
         _JWT_SECRET_FILE,
     )
     return secret
@@ -154,7 +154,7 @@ def bootstrap_admin_if_needed() -> None:
     sec = cfg.get("security") or {}
     boot = sec.get("bootstrap_admin") or {}
     username = (boot.get("username") or "admin").strip()
-    # 兼容两种命名：README 里写的是 HUANZHEN_ADMIN_PASSWORD，
+    # 兼容两种命名：当前用 HUANZHEN_ADMIN_PASSWORD，
     # 历史部署用的是 KEJI_ADMIN_PASSWORD，config.yaml 里的 ${...} 引用可能解析为空。
     raw_pw = boot.get("password") or env_alias("ADMIN_PASSWORD") or ""
     if isinstance(raw_pw, str) and raw_pw.startswith("${"):

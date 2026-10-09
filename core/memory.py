@@ -1,7 +1,7 @@
 from collections import deque
 from core.logger import setup_logger
 
-logger = setup_logger("keji.memory")
+logger = setup_logger("huanzhen.memory")
 
 
 class ConversationMemory:
@@ -49,7 +49,7 @@ class ConversationMemory:
 class SummaryMemory:
     """长对话摘要压缩记忆
 
-    保留最近 k 轮完整对话 + 更早对话的摘要，避免 token 超限。
+    保留最近 10 轮完整对话 + 更早对话的摘要，避免 token 超限。
     """
 
     def __init__(self, recent_rounds: int = 4, max_summary_chars: int = 2000):

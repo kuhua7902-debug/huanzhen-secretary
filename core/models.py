@@ -5,7 +5,7 @@ from typing import Generator, Optional
 import requests
 from core.logger import setup_logger
 
-logger = setup_logger("keji.models")
+logger = setup_logger("huanzhen.models")
 
 
 class BaseModelAdapter(ABC):

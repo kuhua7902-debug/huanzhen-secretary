@@ -22,7 +22,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logger(
-    name: str = "keji",
+    name: str = "huanzhen",
     level: str = "INFO",
     log_file: Optional[str] = None,
     fmt: str = "json",

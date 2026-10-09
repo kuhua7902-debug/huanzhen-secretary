@@ -5,7 +5,7 @@ from typing import Optional
 from core.agent import CoreAgent
 from core.logger import setup_logger
 
-logger = setup_logger("keji.session")
+logger = setup_logger("huanzhen.session")
 
 
 class SessionManager:

@@ -18,7 +18,7 @@ from typing import Optional, Literal
 
 from core.logger import setup_logger
 
-logger = setup_logger("keji.tts")
+logger = setup_logger("huanzhen.tts")
 
 # 可用的后端类型
 TTSBackend = Literal["pyttsx3", "edge", "none"]

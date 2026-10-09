@@ -20,7 +20,7 @@ import logging
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # 抑制工具注册日志：CLI stdout 必须只包含结果 JSON，不能混入日志行
-logging.getLogger('keji').setLevel(logging.ERROR)
+logging.getLogger('huanzhen').setLevel(logging.ERROR)
 
 # 确保项目根目录在 sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

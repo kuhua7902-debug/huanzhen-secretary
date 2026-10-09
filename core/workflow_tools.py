@@ -33,7 +33,7 @@ from pathlib import Path
 from core.tools import register_tool
 from core.logger import setup_logger
 
-logger = setup_logger("keji.workflow")
+logger = setup_logger("huanzhen.workflow")
 
 # ═══════════════════════════════════════════════════════════════
 # 持久化目录

@@ -35,7 +35,7 @@ import numpy as np
 
 from core.logger import setup_logger
 
-logger = setup_logger("keji.voice")
+logger = setup_logger("huanzhen.voice")
 
 
 # ---------------------------------------------------------------------------

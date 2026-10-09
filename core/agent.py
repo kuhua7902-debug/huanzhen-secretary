@@ -14,7 +14,7 @@ from core.rag.vector_store import get_vector_store
 from core.database.db import get_db
 from prompts.sys_prompt import get_system_prompt, get_json_retry_prompt
 
-logger = setup_logger("keji.agent")
+logger = setup_logger("huanzhen.agent")
 
 
 # ---------------------------------------------------------------------------

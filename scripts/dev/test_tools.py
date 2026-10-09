@@ -4,8 +4,8 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 
 async def test():
-    from nanobot.adapter import KejiAdapter
-    adapter = KejiAdapter()
+    from nanobot.adapter import HuanzhenAdapter
+    adapter = HuanzhenAdapter()
     tools = adapter.tools
     tmp = tempfile.gettempdir()
 
@@ -35,10 +35,10 @@ async def test():
     await t('get_time', {})
     await t('calculator', {'expr': '1+2*3'})
     await t('knowledge_stats', {})
-    await t('run_code', {'code': 'print("hello keji")'})
+    await t('run_code', {'code': 'print("hello huanzhen")'})
 
     # 文档 - 创建测试文件并验证
-    test_doc = os.path.join(tmp, 'keji_test_doc.docx')
+    test_doc = os.path.join(tmp, 'huanzhen_test_doc.docx')
     await t('create_document', {'title': '测试', 'content': '测试内容', 'save_path': test_doc})
     if os.path.exists(test_doc):
         print('PASS create_document file exists')
@@ -47,7 +47,7 @@ async def test():
         print('FAIL create_document: file not created')
 
     # 文件夹
-    test_dir = os.path.join(tmp, 'keji_test_dir')
+    test_dir = os.path.join(tmp, 'huanzhen_test_dir')
     await t('create_folder', {'path': test_dir})
     if os.path.isdir(test_dir):
         print('PASS create_folder dir exists')
@@ -58,7 +58,7 @@ async def test():
     await t('search_files', {'pattern': '*.py', 'folder': '.'})
 
     # 读文件
-    tf = os.path.join(tmp, 'keji_readtest.txt')
+    tf = os.path.join(tmp, 'huanzhen_readtest.txt')
     with open(tf, 'w', encoding='utf-8') as f:
         f.write('幻帧测试内容')
     await t('read_document', {'path': tf})
@@ -73,7 +73,7 @@ async def test():
     await t('index_knowledge', {'path': '.'})
 
     # 表格
-    tbl = os.path.join(tmp, 'keji_test.xlsx')
+    tbl = os.path.join(tmp, 'huanzhen_test.xlsx')
     await t('create_table', {'headers': '姓名,年龄', 'rows': '张三,25|李四,30', 'save_path': tbl})
     if os.path.exists(tbl):
         print('PASS create_table file exists')
@@ -82,14 +82,14 @@ async def test():
         print('FAIL create_table: file not created')
 
     # 压缩包
-    tf2 = os.path.join(tmp, 'keji_arc.txt')
+    tf2 = os.path.join(tmp, 'huanzhen_arc.txt')
     with open(tf2, 'w') as f: f.write('test')
-    zip_p = os.path.join(tmp, 'keji_test.zip')
+    zip_p = os.path.join(tmp, 'huanzhen_test.zip')
     await t('create_archive', {'sources': tf2, 'output_path': zip_p})
     if os.path.exists(zip_p):
         print('PASS create_archive')
         await t('browse_archive', {'archive_path': zip_p})
-        ext_dir = os.path.join(tmp, 'keji_extract')
+        ext_dir = os.path.join(tmp, 'huanzhen_extract')
         await t('extract_archive', {'archive_path': zip_p, 'output_dir': ext_dir})
         os.unlink(zip_p)
     else:
@@ -97,10 +97,10 @@ async def test():
     os.unlink(tf2)
 
     # 重命名
-    old = os.path.join(tmp, 'keji_old.txt')
-    new = os.path.join(tmp, 'keji_new.txt')
+    old = os.path.join(tmp, 'huanzhen_old.txt')
+    new = os.path.join(tmp, 'huanzhen_new.txt')
     with open(old, 'w') as f: f.write('test')
-    await t('rename_files', {'directory': tmp, 'pattern': 's/keji_old/keji_new/'})
+    await t('rename_files', {'directory': tmp, 'pattern': 's/huanzhen_old/huanzhen_new/'})
     if os.path.exists(new):
         print('PASS rename_files')
         os.unlink(new)
@@ -114,7 +114,7 @@ async def test():
     await t('organize_files', {'source_dir': tmp, 'mode': 'flat', 'preview': True})
 
     # 删除
-    tf3 = os.path.join(tmp, 'keji_del.txt')
+    tf3 = os.path.join(tmp, 'huanzhen_del.txt')
     with open(tf3, 'w') as f: f.write('test')
     await t('delete_file', {'path': tf3, 'confirm': True})
 

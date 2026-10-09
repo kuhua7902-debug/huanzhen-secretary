@@ -42,7 +42,7 @@ def main():
     args = parser.parse_args()
 
     # 设置日志
-    setup_logger("keji", level="INFO", log_file="logs/wechat.log")
+    setup_logger("huanzhen", level="INFO", log_file="logs/wechat.log")
 
     # 清除登录状态
     if args.reset:

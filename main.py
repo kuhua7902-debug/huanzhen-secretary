@@ -25,7 +25,7 @@ from core.security.chat_session import resolve_chat_ids
 from core.wechat.work_bridge import router as work_router
 
 async def get_adapter():
-    """全系统共享同一个 KejiAdapter 实例（委托给 nanobot.adapter 模块的单例）"""
+    """全系统共享同一个 HuanzhenAdapter 实例（委托给 nanobot.adapter 模块的单例）"""
     from nanobot.adapter import get_adapter as _get_nanobot_adapter
     return await _get_nanobot_adapter()
 
@@ -87,10 +87,25 @@ app.include_router(security_router)
 app.include_router(work_router)
 
 
-static_dir = os.path.join(os.path.dirname(__file__), "web")
-if os.path.isdir(static_dir):
-    from fastapi.staticfiles import StaticFiles
-    app.mount("/static", StaticFiles(directory=static_dir, check_dir=False), name="static")
+_ROOT_DIR = os.path.dirname(__file__)
+_LEGACY_WEB_DIR = os.path.join(_ROOT_DIR, "web")
+# 新版前端（Vite + React）构建产物。存在则优先使用，否则回退到 legacy 单页。
+_SPA_DIST_DIR = os.path.join(_LEGACY_WEB_DIR, "dist")
+
+
+def _spa_dist_available() -> bool:
+    return os.path.isfile(os.path.join(_SPA_DIST_DIR, "index.html"))
+
+
+# legacy 静态资源（旧前端与 web/dist 之外的图片等）
+if os.path.isdir(_LEGACY_WEB_DIR):
+    app.mount("/static", StaticFiles(directory=_LEGACY_WEB_DIR, check_dir=False), name="static")
+
+# 新版前端的构建产物：Vite 默认把 js/css 放在 assets/ 下（带内容哈希，可长期缓存）
+if _spa_dist_available():
+    _assets_dir = os.path.join(_SPA_DIST_DIR, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
 
 
 # ── 请求模型 ──
@@ -100,6 +115,22 @@ class ChatRequest(BaseModel):
     session_id: str = Field(default="", description="会话ID")
     conversation_id: str = Field(default="", description="对话ID")
     files: list[str] = Field(default=[], description="已上传文件路径")
+    model: str = Field(default="", description="模型键（config.yaml models 段）；留空用默认模型")
+    mode: str = Field(default="auto", description="执行模式：auto（完全访问）| readonly（只读，仅允许只读工具）")
+    workspace: str = Field(default="", description="本次对话的工作空间目录（留空则不限定）")
+
+
+def _effective_role(user, mode: str) -> str:
+    """把「执行模式」折算成角色，复用既有的 fail-closed 只读白名单。
+
+    readonly 模式会让本轮请求以只读角色执行：RolePermissionHook 只放行
+    READ_ONLY_TOOLS 内的工具，从而真正拦下写盘 / 命令 / 桌面操作，
+    而不是只在前端做样子。
+    """
+    role = user.role if user else ""
+    if (mode or "").strip().lower() == "readonly" and role in ("admin", "member"):
+        return "readonly"
+    return role
 
 
 class ResetRequest(BaseModel):
@@ -117,12 +148,22 @@ def _get_cache_buster() -> str:
 
 
 def get_html() -> str:
-    html_path = os.path.join(os.path.dirname(__file__), "web", "index.html")
-    try:
-        with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h1>前端页面未找到</h1>"
+    """返回首页 HTML。
+
+    优先使用新版前端（Vite 构建产物 web/dist/index.html）；
+    未构建时回退到 legacy 单页 web/index.html，保证任何时刻都能启动。
+    """
+    candidates = []
+    if _spa_dist_available():
+        candidates.append(os.path.join(_SPA_DIST_DIR, "index.html"))
+    candidates.append(os.path.join(_LEGACY_WEB_DIR, "index.html"))
+    for html_path in candidates:
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            continue
+    return "<h1>前端页面未找到</h1>"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -147,9 +188,12 @@ async def chat(req: ChatRequest, request: Request):
         client_ip=request.client.host if request.client else "",
         actor=user.username if user else "api",
         user_id=user.id if user else "",
-        role=user.role if user else "",
+        role=_effective_role(user, req.mode),
     )
-    reply = await adapter.chat(query=req.query, sid=sid, files=req.files or None)
+    reply = await adapter.chat(
+        query=req.query, sid=sid, files=req.files or None, model=req.model or None,
+        workspace=req.workspace or None,
+    )
     return {"reply": reply, "session_id": sid, "conversation_id": conv_id}
 
 
@@ -164,11 +208,14 @@ async def chat_stream(req: ChatRequest, request: Request):
         client_ip=request.client.host if request.client else "",
         actor=user.username if user else "api",
         user_id=user.id if user else "",
-        role=user.role if user else "",
+        role=_effective_role(user, req.mode),
     )
 
     async def generate():
-        async for event_str in adapter.chat_stream(query=req.query, sid=sid, files=req.files or None):
+        async for event_str in adapter.chat_stream(
+            query=req.query, sid=sid, files=req.files or None, model=req.model or None,
+            workspace=req.workspace or None,
+        ):
             yield f"data: {event_str}\n\n"
 
     return StreamingResponse(

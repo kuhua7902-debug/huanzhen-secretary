@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import requests
 
-logger = logging.getLogger("keji.wechat.work")
+logger = logging.getLogger("huanzhen.wechat.work")
 
 API_BASE = "https://qyapi.weixin.qq.com/cgi-bin"
 TOKEN_EXPIRE_BUFFER = 300  # 提前 5 分钟刷新 Token

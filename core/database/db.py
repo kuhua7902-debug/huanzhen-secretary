@@ -39,19 +39,41 @@ _db_instance = None
 _db_lock = threading.Lock()
 
 
+_DEFAULT_DB_REL = os.path.join("data", "huanzhen.db")
+# 迁移兼容：历史（Keji 时期）的库文件名。仅用于把既有部署的数据自动迁移到新名字，
+# 属于不可删除的迁移项而非命名遗留。
 _LEGACY_DB_REL = os.path.join("data", "keji.db")
+
+
+def _migrate_legacy_db(legacy: str, target: str) -> None:
+    """把历史库文件（含 WAL/SHM 边车文件）迁移到新路径。"""
+    if os.path.normcase(legacy) == os.path.normcase(target):
+        return
+    if os.path.isfile(target) or not os.path.isfile(legacy):
+        return
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        for suffix in ("", "-wal", "-shm"):
+            src, dst = legacy + suffix, target + suffix
+            if os.path.isfile(src):
+                os.replace(src, dst)
+        logger.info("已把历史数据库迁移到新路径: {} -> {}", legacy, target)
+    except Exception as e:
+        logger.warning("迁移历史数据库失败，继续使用原路径 {}: {}", legacy, e)
 
 
 def _resolve_db_path() -> str:
     """决定 SQLite 主库路径。
 
-    - 默认仍是历史路径 data/keji.db（保证既有部署不丢数据）。
-    - 若 config.yaml 的 database.path 指向一个**已存在**的文件，则采用它，
-      这样用户可以主动把库迁移到新位置（例如 data/huanzhen.db）而不需要改代码。
+    - 默认 data/huanzhen.db。
+    - 若 config.yaml 的 database.path 指向一个**已存在**的文件，则采用它；
+      但它若仍指向历史文件名 data/keji.db，会被自动迁移到 data/huanzhen.db。
       只认已存在的文件，避免"配置写错 -> 悄悄新建一个空库 -> 历史对话看不见"。
     """
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    default = os.path.join(root, _DEFAULT_DB_REL)
     legacy = os.path.join(root, _LEGACY_DB_REL)
+    target = default
     try:
         from core.security.secrets import load_app_config
 
@@ -59,16 +81,19 @@ def _resolve_db_path() -> str:
         if configured:
             path = configured if os.path.isabs(configured) else os.path.join(root, configured)
             path = os.path.abspath(path)
-            if path != legacy:
-                if os.path.isfile(path):
-                    logger.info("使用配置指定的数据库: {}", path)
-                    return path
+            if os.path.normcase(path) == os.path.normcase(legacy):
+                # 配置仍指向历史库名 —— 一并迁移到新名字
+                path = default
+            if os.path.isfile(path):
+                target = path
+            elif path != default:
                 logger.debug(
-                    "database.path 指向 {} 但文件不存在，继续使用 {}", path, legacy
+                    "database.path 指向 {} 但文件不存在，使用默认库 {}", path, target
                 )
     except Exception:
         pass
-    return legacy
+    _migrate_legacy_db(legacy, target)
+    return target
 
 
 def get_db() -> "Database":
@@ -568,17 +593,9 @@ class Database:
             return None
         pwd_enc = config.get("password_encrypted", "")
         if pwd_enc:
-            try:
-                import base64
-                from cryptography.fernet import Fernet
-                from cryptography.hazmat.primitives import hashes
-                from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-                machine_id = __import__("hashlib").md5(__import__("os").environ.get("COMPUTERNAME", "keji").encode()).hexdigest()
-                kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"keji-db-pwd", iterations=100000)
-                key = base64.urlsafe_b64encode(kdf.derive(machine_id.encode()))
-                config["password"] = Fernet(key).decrypt(pwd_enc.encode()).decode()
-            except Exception:
-                config["password"] = pwd_enc
+            from core.security.db_crypto import decrypt_password
+
+            config["password"] = decrypt_password(pwd_enc)
         else:
             config["password"] = ""
         config.pop("password_encrypted", None)
@@ -817,6 +834,28 @@ class Database:
             "month": _sum_cost(month_start),
             "all": _sum_cost(0),
         }
+
+    def get_usage_by_model(self) -> list:
+        """按模型汇总本机调用记录（供「模型额度」面板使用）。
+
+        说明：**调用次数一定真实**；token / 成本则取决于模型是否在流式响应里
+        回传 usage —— 目前多数厂商不回传，所以 cost 常常是 0。上层据此区分展示，
+        不会把 0 当成"免费"。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT COALESCE(NULLIF(model, ''), '(未知)') as model,
+                      COUNT(*) as calls,
+                      SUM(CASE WHEN tool_name = '__llm__' THEN 1 ELSE 0 END) as llm_calls,
+                      COALESCE(SUM(estimated_cost), 0) as cost,
+                      COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+                      COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+                      COALESCE(SUM(cached_tokens), 0) as cached_tokens
+               FROM tool_usage_log
+               GROUP BY model
+               ORDER BY calls DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_session_cost(self, session_id: str) -> dict:
         """获取单个会话的成本"""

@@ -1,4 +1,4 @@
-# Keji Agent - one-click venv setup (Windows)
+# Huanzhen Agent - one-click venv setup (Windows)
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -11,7 +11,7 @@ function Write-Ok([string]$Msg) { Write-Host "OK  $Msg" -ForegroundColor Green }
 function Write-Warn2([string]$Msg) { Write-Host "!!  $Msg" -ForegroundColor Yellow }
 
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Keji Agent - Deploy / Setup venv" -ForegroundColor Green
+Write-Host "  Huanzhen Agent - Deploy / Setup venv" -ForegroundColor Green
 Write-Host "  $Root" -ForegroundColor DarkGray
 Write-Host "========================================" -ForegroundColor Green
 
@@ -136,15 +136,15 @@ $envEx = Join-Path $Root ".env.example"
 if (-not (Test-Path $envFile) -and (Test-Path $envEx)) {
     Copy-Item $envEx $envFile
     $jwt = [guid]::NewGuid().ToString("N")
-    Add-Content -Path $envFile -Value "KEJI_JWT_SECRET=$jwt" -Encoding UTF8
-    Write-Ok "Created .env from .env.example (auto KEJI_JWT_SECRET)"
+    Add-Content -Path $envFile -Value "HUANZHEN_JWT_SECRET=$jwt" -Encoding UTF8
+    Write-Ok "Created .env from .env.example (auto HUANZHEN_JWT_SECRET)"
 } elseif (Test-Path $envFile) {
     Write-Warn2 ".env already exists - kept"
 } else {
     @"
-KEJI_API_KEY=
-KEJI_JWT_SECRET=$([guid]::NewGuid().ToString('N'))
-KEJI_ADMIN_PASSWORD=admin123
+HUANZHEN_API_KEY=
+HUANZHEN_JWT_SECRET=$([guid]::NewGuid().ToString('N'))
+HUANZHEN_ADMIN_PASSWORD=admin123
 DEEPSEEK_API_KEY=
 OPENAI_API_KEY=
 TAVILY_API_KEY=
@@ -154,7 +154,7 @@ FEISHU_APP_SECRET=
     Write-Ok "Created default .env"
 }
 
-Write-Warn2 "Edit .env: set DEEPSEEK_API_KEY (required for chat), KEJI_ADMIN_PASSWORD (first admin login)"
+Write-Warn2 "Edit .env: set DEEPSEEK_API_KEY (required for chat), HUANZHEN_ADMIN_PASSWORD (first admin login)"
 
 # --- data dirs ---
 Write-Step "Data directories"
@@ -172,7 +172,7 @@ Write-Ok "workspace / logs ready"
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "  Deploy finished!" -ForegroundColor Green
 Write-Host "  1. Edit .env (DEEPSEEK_API_KEY, etc.)" -ForegroundColor White
-Write-Host "  2. Start: launch_keji.bat (browser) or run_server.bat (console)" -ForegroundColor White
+Write-Host "  2. Start: launch_huanzhen.bat (browser) or run_server.bat (console)" -ForegroundColor White
 Write-Host "     CN: setup_deploy.bat = deploy, same as one-click deploy bat" -ForegroundColor DarkGray
 Write-Host "  Open: http://127.0.0.1:8000/" -ForegroundColor Cyan
 Write-Host "========================================`n" -ForegroundColor Green

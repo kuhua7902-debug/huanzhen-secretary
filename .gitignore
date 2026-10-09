@@ -44,6 +44,12 @@ portable_bundle/
 dist/
 build/
 *.spec
+# 例外：新版前端（Vite）构建产物需随仓库分发，离线部署时无需安装 Node
+!web/dist/
+!web/dist/**
+
+# IDE / tooling artifacts
+.playwright-cli/
 
 # Logs & local test outputs
 *.log
@@ -65,3 +71,8 @@ Thumbs.db
 
 # One-off scripts (not part of the app)
 reconciliation.py
+
+# 个人文件 / 演示素材 / 生成的本地文档（不属于代码仓库，勿入库）
+介绍我自己.docx
+huanzhen/
+rag.txt

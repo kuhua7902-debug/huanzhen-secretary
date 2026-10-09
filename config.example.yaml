@@ -126,8 +126,8 @@ knowledge:
 database:
   # SQLite 主库路径（相对项目根或绝对路径）。
   # ⚠️ 只有该文件**已存在**时才会被采用；否则继续使用历史默认路径
-  #    data/keji.db —— 避免配置写错时悄悄新建一个空库、导致历史对话看不见。
-  path: data/keji.db
+  #    data/huanzhen.db —— 避免配置写错时悄悄新建一个空库、导致历史对话看不见。
+  path: data/huanzhen.db
 
 session:
   ttl: 3600

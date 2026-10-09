@@ -11,7 +11,7 @@ qwen3-vl-plus 连通性最小测试
 4. 能否返回结构化 JSON
 
 用法：
-    cd d:\about_python\Keji_Nanobot\Keji-agent-main
+    cd d:/about_python/huanzhen_Nanobot/huanzhen_agent
     venv\Scripts\python.exe scripts\test_vl_connect.py
 """
 

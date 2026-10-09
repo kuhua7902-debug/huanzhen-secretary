@@ -4,7 +4,7 @@ function loadKnowledgeBase() {
 }
 
 function loadKbStats() {
-  kejiFetch('/api/knowledge/stats').then(r => r.json()).then(d => {
+  huanzhenFetch('/api/knowledge/stats').then(r => r.json()).then(d => {
     document.querySelector('#kbStats .stat-card:nth-child(1) .number').textContent = d.total_documents || 0;
     document.querySelector('#kbStats .stat-card:nth-child(2) .number').textContent = d.total_chunks || 0;
     document.querySelector('#kbStats .stat-card:nth-child(3) .number').textContent = d.vector_count || 0;
@@ -12,7 +12,7 @@ function loadKbStats() {
 }
 
 function loadKbDocs() {
-  kejiFetch('/api/knowledge/documents').then(r => r.json()).then(d => {
+  huanzhenFetch('/api/knowledge/documents').then(r => r.json()).then(d => {
     const list = document.getElementById('kbDocList');
     const countEl = document.getElementById('kbDocCount');
     if (countEl) countEl.textContent = (d.documents ? d.documents.length : 0) + ' 个文档';
@@ -47,7 +47,7 @@ function indexFromInput() {
   btn.textContent = '⏳ 索引中...';
   cancelBtn.style.display = 'inline-flex';
 
-  kejiFetch('/api/knowledge/index', {
+  huanzhenFetch('/api/knowledge/index', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, recursive: true })
@@ -70,7 +70,7 @@ function indexFromInput() {
 }
 
 function cancelIndexing() {
-  kejiFetch('/api/knowledge/cancel', { method: 'POST' })
+  huanzhenFetch('/api/knowledge/cancel', { method: 'POST' })
     .then(r => r.json()).then(d => {
       toast('⏹ 已终止索引', 'info');
     }).catch(() => toast('取消失败', 'error'));
@@ -78,7 +78,7 @@ function cancelIndexing() {
 
 function deleteDoc(docId) {
   showDangerConfirm('删除知识库文档', '确定要从知识库中删除此文档吗？', function() {
-    kejiFetch('/api/knowledge/document/' + docId, { method: 'DELETE' })
+    huanzhenFetch('/api/knowledge/document/' + docId, { method: 'DELETE' })
       .then(r => r.json()).then(d => {
         toast('文档已删除', 'success');
         loadKbDocs();
@@ -116,7 +116,7 @@ function deleteSelectedKbDocs() {
   if (ids.length === 0) { showAlert('提示', '请先勾选要删除的文档'); return; }
   showDangerConfirm('批量删除文档', '确定删除选中的 ' + ids.length + ' 个文档吗？', function() {
     Promise.all(ids.map(function(id) {
-      return kejiFetch('/api/knowledge/document/' + id, { method: 'DELETE' });
+      return huanzhenFetch('/api/knowledge/document/' + id, { method: 'DELETE' });
     })).then(function() {
       toast('已删除 ' + ids.length + ' 个文档', 'success');
       loadKbDocs();
@@ -128,7 +128,7 @@ function deleteSelectedKbDocs() {
 function clearAllKnowledge() {
   showDangerConfirm('清空知识库', '确定要清空整个知识库吗？\n所有已索引的文档和向量数据将被删除。', function() {
     showDangerConfirm('⚠️ 再次确认', '此操作不可恢复！\n确定清空所有知识库数据吗？', function() {
-      kejiFetch('/api/knowledge/clear', { method: 'POST' })
+      huanzhenFetch('/api/knowledge/clear', { method: 'POST' })
         .then(r => r.json()).then(d => {
           toast('知识库已清空（' + (d.count || 0) + ' 个文档）', 'success');
           loadKbDocs();
@@ -151,7 +151,7 @@ function searchKnowledge() {
   const q = input.value.trim();
   if (!q) { input.style.display = 'none'; return; }
 
-  kejiFetch('/api/knowledge/search?query=' + encodeURIComponent(q) + '&n=10')
+  huanzhenFetch('/api/knowledge/search?query=' + encodeURIComponent(q) + '&n=10')
     .then(r => r.json()).then(d => {
       const list = document.getElementById('kbDocList');
       if (!d.results || d.results.length === 0) {
@@ -227,12 +227,12 @@ function updateFbActions(canUpload) {
 }
 
 function loadDrives() {
-  if (!getKejiToken() && window.kejiAuthReady !== true) {
+  if (!getHuanzhenToken() && window.huanzhenAuthReady !== true) {
     var items = document.getElementById('fbItems');
     if (items) items.innerHTML = '<div class="empty-list">请先登录后再使用团队文件</div>';
     return;
   }
-  kejiFetch('/api/files/roots').then(function(r) {
+  huanzhenFetch('/api/files/roots').then(function(r) {
     if (!r.ok) {
       return r.json().then(function(d) {
         throw new Error(d.detail || ('HTTP ' + r.status));
@@ -248,7 +248,7 @@ function loadDrives() {
       if (first) first.classList.add('active');
       listFiles(fbRoots[0].path);
     } else {
-      return kejiFetch('/api/files/drives').then(function(r2) { return r2.json(); }).then(function(legacy) {
+      return huanzhenFetch('/api/files/drives').then(function(r2) { return r2.json(); }).then(function(legacy) {
         fbMode = legacy.mode || 'legacy';
         fbRoots = (legacy.drives || []).map(function(drv) {
           return { id: 'legacy', name: drv.name, path: drv.path };
@@ -270,7 +270,7 @@ function listFiles(path) {
   document.getElementById('fbPath').textContent = '加载中…';
   document.getElementById('fbItems').innerHTML = '<div class="loading"><div class="spinner"></div>加载中...</div>';
 
-  kejiFetch('/api/files/list?path=' + encodeURIComponent(path))
+  huanzhenFetch('/api/files/list?path=' + encodeURIComponent(path))
     .then(function(r) {
       if (!r.ok) return r.json().then(function(err) { throw new Error(err.detail || ('HTTP ' + r.status)); });
       return r.json();
@@ -355,7 +355,7 @@ function goUpDir() {
     loadDrives();
     return;
   }
-  kejiFetch('/api/files/list?path=' + encodeURIComponent(fbCurrentAbsPath))
+  huanzhenFetch('/api/files/list?path=' + encodeURIComponent(fbCurrentAbsPath))
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.parent) {
@@ -391,7 +391,7 @@ function onFbUploadPick(input) {
     var f = files[idx++];
     var fd = new FormData();
     fd.append('file', f);
-    kejiFetch('/api/files/upload?path=' + encodeURIComponent(fbCurrentAbsPath), {
+    huanzhenFetch('/api/files/upload?path=' + encodeURIComponent(fbCurrentAbsPath), {
       method: 'POST',
       body: fd,
     }).then(function(r) { return r.json(); }).then(function(d) {
@@ -411,7 +411,7 @@ function fbCreateFolder() {
   if (!fbCurrentAbsPath) return;
   var name = prompt('新建文件夹名称');
   if (!name || !name.trim()) return;
-  kejiFetch('/api/files/mkdir', {
+  huanzhenFetch('/api/files/mkdir', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: fbCurrentAbsPath, name: name.trim() }),
@@ -427,14 +427,14 @@ function fbCreateFolder() {
 }
 
 function openLocalFile(filePath) {
-  kejiFetch('/api/files/open?path=' + encodeURIComponent(filePath), { method: 'POST' })
+  huanzhenFetch('/api/files/open?path=' + encodeURIComponent(filePath), { method: 'POST' })
     .then(r => r.json()).then(d => {
       if (d.status === 'ok') toast('已打开: ' + filePath.split('\\').pop(), 'success');
     }).catch(e => toast('打开失败: ' + e.message, 'error'));
 }
 
 function quickIndex(filePath) {
-  kejiFetch('/api/knowledge/index', {
+  huanzhenFetch('/api/knowledge/index', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: filePath, recursive: false })
@@ -444,14 +444,14 @@ function quickIndex(filePath) {
   }).catch(e => toast('索引失败: ' + e.message, 'error'));
 }
 function loadThinkingSetting() {
-  var enabled = localStorage.getItem('keji_show_thinking');
+  var enabled = localStorage.getItem('huanzhen_show_thinking');
   if (enabled === null) enabled = 'true';
   document.getElementById('setShowThinking').checked = enabled === 'true';
   updateThinkingToggleUI();
 }
 function saveThinkingSetting() {
   var checked = document.getElementById('setShowThinking').checked;
-  localStorage.setItem('keji_show_thinking', checked ? 'true' : 'false');
+  localStorage.setItem('huanzhen_show_thinking', checked ? 'true' : 'false');
   updateThinkingToggleUI();
 }
 function updateThinkingToggleUI() {
@@ -460,7 +460,7 @@ function updateThinkingToggleUI() {
   document.getElementById('thinkingToggleThumb').style.transform = on ? 'translateX(20px)' : 'none';
 }
 function isShowThinking() {
-  return localStorage.getItem('keji_show_thinking') !== 'false';
+  return localStorage.getItem('huanzhen_show_thinking') !== 'false';
 }
 
 /* ===== 图标主题切换 ===== */
@@ -470,9 +470,9 @@ function applyIconTheme(theme) {
   } else {
     document.body.classList.remove('theme-fa');
   }
-  localStorage.setItem('keji_icon_theme', theme);
-  if (window.kejiCurrentUser && window.kejiAuthReady && typeof kejiFetch === 'function') {
-    kejiFetch('/api/settings', {
+  localStorage.setItem('huanzhen_icon_theme', theme);
+  if (window.huanzhenCurrentUser && window.huanzhenAuthReady && typeof huanzhenFetch === 'function') {
+    huanzhenFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ settings: { icon_theme: theme } }),
@@ -480,7 +480,7 @@ function applyIconTheme(theme) {
   }
 }
 function loadIconTheme() {
-  var theme = localStorage.getItem('keji_icon_theme') || 'emoji';
+  var theme = localStorage.getItem('huanzhen_icon_theme') || 'emoji';
   document.getElementById('setIconTheme').value = theme;
   applyIconTheme(theme);
 }
@@ -491,10 +491,10 @@ function toggleModelType() {
   document.getElementById('openaiSettings').style.display = t === 'openai' ? '' : 'none';
 }
 
-function saveKejiApiKey() {
-  var el = document.getElementById('setKejiApiKey');
+function saveHuanzhenApiKey() {
+  var el = document.getElementById('setHuanzhenApiKey');
   if (!el) return;
-  setKejiApiKey(el.value.trim());
+  setHuanzhenApiKey(el.value.trim());
   toast('访问密钥已保存到浏览器', 'success');
   loadSecurityStatus();
 }
@@ -503,7 +503,7 @@ function loadSecurityStatus() {
   var hint = document.getElementById('securityStatusHint');
   if (!hint) return;
   var headers = {};
-  var token = getKejiToken();
+  var token = getHuanzhenToken();
   if (token) headers['Authorization'] = 'Bearer ' + token;
   fetch('/api/security/status', { headers: headers }).then(function(r) { return r.json(); }).then(function(d) {
     if (!d.auth_enabled) {
@@ -517,8 +517,8 @@ function loadSecurityStatus() {
       hint.style.color = '#27ae60';
       return;
     }
-    if (window.kejiCurrentUser) {
-      hint.textContent = '已登录：' + (window.kejiCurrentUser.display_name || window.kejiCurrentUser.username);
+    if (window.huanzhenCurrentUser) {
+      hint.textContent = '已登录：' + (window.huanzhenCurrentUser.display_name || window.huanzhenCurrentUser.username);
       hint.style.color = '#27ae60';
       return;
     }
@@ -544,7 +544,7 @@ function loadAuditLogs() {
   if (hint) hint.textContent = '加载中…';
   tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:20px">加载中…</td></tr>';
 
-  kejiFetch(url)
+  huanzhenFetch(url)
     .then(function(r) {
       if (!r.ok) {
         return r.json().then(function(d) {
@@ -593,11 +593,11 @@ function loadAuditLogs() {
 }
 
 function loadModelSettings() {
-  var keyEl = document.getElementById('setKejiApiKey');
-  if (keyEl) keyEl.value = getKejiApiKey();
+  var keyEl = document.getElementById('setHuanzhenApiKey');
+  if (keyEl) keyEl.value = getHuanzhenApiKey();
   loadSecurityStatus();
   loadAuditLogs();
-  kejiFetch('/api/settings').then(r => r.json()).then(d => {
+  huanzhenFetch('/api/settings').then(r => r.json()).then(d => {
     var s = d.db_settings || {};
     if (s.model_type) document.getElementById('setModelType').value = s.model_type;
     if (s.ollama_url) document.getElementById('setOllamaUrl').value = s.ollama_url;
@@ -652,7 +652,7 @@ function reloadMcpFilesystem() {
     btn.textContent = '连接文件 MCP…';
   }
   function tryReload(url) {
-    return kejiFetch(url, { method: 'POST' }).then(function(r) {
+    return huanzhenFetch(url, { method: 'POST' }).then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
@@ -696,7 +696,7 @@ function testModelConn() {
     model = document.getElementById('setOpenaiModel').value;
   }
 
-  kejiFetch('/api/models/test', {
+  huanzhenFetch('/api/models/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model_type: modelType, base_url: baseUrl, api_key: apiKey, model: model })
@@ -733,7 +733,7 @@ function saveSettings() {
     icon_theme: document.getElementById('setIconTheme') ? document.getElementById('setIconTheme').value : 'emoji',
   };
 
-  kejiFetch('/api/settings', {
+  huanzhenFetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings })
@@ -755,7 +755,7 @@ function saveSettings() {
 
 /* ===== 企业微信配置 ===== */
 function loadWorkConfig() {
-  kejiFetch('/api/settings').then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/settings').then(function(r){return r.json()}).then(function(d){
     var s = d.db_settings || {};
     if (s.work_corp_id) document.getElementById('workCorpId').value = s.work_corp_id;
     if (s.work_agent_id) document.getElementById('workAgentId').value = s.work_agent_id;
@@ -770,7 +770,7 @@ function saveWorkConfig() {
   var a = document.getElementById('workAgentId').value.trim();
   var s = document.getElementById('workSecret').value.trim();
   if (!c || !s) { toast('请填写 CorpID 和 Secret', 'error'); return; }
-  kejiFetch('/api/settings', {
+  huanzhenFetch('/api/settings', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({settings:{work_corp_id:c, work_agent_id:a, work_secret:s}})
   }).then(function(){toast('企业微信配置已保存','success')}).catch(function(){toast('保存失败','error')});
@@ -783,10 +783,10 @@ function testWorkConn() {
   var btn = document.querySelector('#page-settings .btn-primary');
   var r = document.getElementById('workTestResult');
   btn.disabled = true; r.textContent = '测试中...'; r.style.color = '#999';
-  kejiFetch('/api/settings', {
+  huanzhenFetch('/api/settings', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({settings:{work_corp_id:c, work_agent_id:a, work_secret:s}})
-  }).then(function(){return kejiFetch('/api/work/status')})
+  }).then(function(){return huanzhenFetch('/api/work/status')})
    .then(function(r){return r.json()}).then(function(d){
     if (d.connected) { r.textContent = '✅ ' + (d.message||'连接成功'); r.style.color = '#27ae60'; }
     else { r.textContent = '❌ ' + (d.message||'连接失败'); r.style.color = '#e74c3c'; }
@@ -802,7 +802,7 @@ function loadDbConfigs() {
   var list = document.getElementById('dbConfigList');
   if (!list) return;
   list.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px"><div class="spinner"></div></div>';
-  kejiFetch('/api/database/configs').then(function(r){return r.json()}).then(function(data){
+  huanzhenFetch('/api/database/configs').then(function(r){return r.json()}).then(function(data){
     var configs = data.configs || [];
     if (!configs.length) { list.innerHTML = '<div style="grid-column:1/-1;padding:60px 0;text-align:center;color:var(--text-secondary);font-size:14px">暂无数据源，点击上方「新增」按钮添加</div>'; return; }
     var html = '';
@@ -831,7 +831,7 @@ function showDbConfigForm(editId) {
   body += '<div style="margin-bottom:12px"><label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">密码</label><input id="fld_password" type="password" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:14px;box-sizing:border-box"></div>';
   showDialog(editId?'编辑数据源':'新增数据源', body+'<div style="display:flex;gap:8px;margin-top:4px"><button class="btn btn-primary" onclick="saveDbConfigFromForm('+(editId||'null')+')">💾 保存</button><button class="btn btn-outline" onclick="closeDialog()">取消</button></div>');
   if (editId) {
-    kejiFetch('/api/database/configs/'+editId).then(function(r){return r.json()}).then(function(d){
+    huanzhenFetch('/api/database/configs/'+editId).then(function(r){return r.json()}).then(function(d){
       var cfg = d.config||{};
       ['name','host','database_name','username'].forEach(function(k){var el=document.getElementById('fld_'+k);if(el&&cfg[k])el.value=cfg[k];});
       var p=document.getElementById('fld_port');if(p&&cfg.port)p.value=cfg.port;
@@ -845,17 +845,17 @@ function saveDbConfigFromForm(editId) {
   if(!data.name||!data.host||!data.database_name){alert('请填写必填字段');return;}
   var url=editId?'/api/database/configs/'+editId:'/api/database/configs';
   var method=editId?'PUT':'POST';
-  kejiFetch(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+  huanzhenFetch(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
   .then(function(r){return r.json()}).then(function(d){if(d.status==='ok'){closeDialog();loadDbConfigs();}else{alert('保存失败: '+(d.detail||'未知错误'));}})
   .catch(function(e){alert('请求失败: '+e.message);});
 }
 
-function deleteDbConfig(id){if(!confirm('确定删除此数据源？关联的表元数据也会被删除。'))return;kejiFetch('/api/database/configs/'+id,{method:'DELETE'}).then(function(){loadDbConfigs();}).catch(function(e){alert('删除失败: '+e.message);});}
-function testDbConfig(id){var el=document.getElementById('dbMsg_'+id);if(el)el.innerHTML='<span style="color:#888">⏳ 测试中...</span>';kejiFetch('/api/database/configs/'+id+'/test',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(el)el.innerHTML='<span style="color:'+(d.status==='ok'?'green':'red')+'">'+escHtml(d.message)+'</span>';}).catch(function(e){if(el)el.innerHTML='<span style="color:red">请求失败: '+escHtml(e.message)+'</span>';});}
-function scanDbConfig(id){var el=document.getElementById('dbMsg_'+id);if(el)el.innerHTML='<span style="color:#888">⏳ 扫描表结构中...</span>';kejiFetch('/api/database/configs/'+id+'/scan',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(el)el.innerHTML='<span style="color:green">✅ '+escHtml(d.message)+'</span>';}).catch(function(e){if(el)el.innerHTML='<span style="color:red">❌ 扫描失败: '+escHtml(e.message)+'</span>';});}
+function deleteDbConfig(id){if(!confirm('确定删除此数据源？关联的表元数据也会被删除。'))return;huanzhenFetch('/api/database/configs/'+id,{method:'DELETE'}).then(function(){loadDbConfigs();}).catch(function(e){alert('删除失败: '+e.message);});}
+function testDbConfig(id){var el=document.getElementById('dbMsg_'+id);if(el)el.innerHTML='<span style="color:#888">⏳ 测试中...</span>';huanzhenFetch('/api/database/configs/'+id+'/test',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(el)el.innerHTML='<span style="color:'+(d.status==='ok'?'green':'red')+'">'+escHtml(d.message)+'</span>';}).catch(function(e){if(el)el.innerHTML='<span style="color:red">请求失败: '+escHtml(e.message)+'</span>';});}
+function scanDbConfig(id){var el=document.getElementById('dbMsg_'+id);if(el)el.innerHTML='<span style="color:#888">⏳ 扫描表结构中...</span>';huanzhenFetch('/api/database/configs/'+id+'/scan',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(el)el.innerHTML='<span style="color:green">✅ '+escHtml(d.message)+'</span>';}).catch(function(e){if(el)el.innerHTML='<span style="color:red">❌ 扫描失败: '+escHtml(e.message)+'</span>';});}
 
 function showTableMeta(configId) {
-  kejiFetch('/api/database/configs/'+configId+'/metadata').then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/database/configs/'+configId+'/metadata').then(function(r){return r.json()}).then(function(d){
     var metas=d.metadata||[];if(!metas.length){alert('暂无表元数据，请先扫描');return;}
     var html='<div style="max-height:400px;overflow-y:auto"><div style="font-size:13px;font-weight:500;margin-bottom:8px;color:var(--text-secondary)">共 '+metas.length+' 个表，勾选「启用问答」即可用于智能问数</div>';
     metas.forEach(function(m){
@@ -866,9 +866,9 @@ function showTableMeta(configId) {
   }).catch(function(e){alert('加载失败: '+e.message);});
 }
 
-function toggleTableQa(metaId,enabled){kejiFetch('/api/database/metadata/'+metaId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({qa_enabled:enabled?1:0})}).then(function(r){return r.json()}).catch(function(){});}
+function toggleTableQa(metaId,enabled){huanzhenFetch('/api/database/metadata/'+metaId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({qa_enabled:enabled?1:0})}).then(function(r){return r.json()}).catch(function(){});}
 
-function loadDbConfigSelect(){var sel=document.getElementById('sqConfigSelect');if(!sel)return;kejiFetch('/api/database/configs').then(function(r){return r.json()}).then(function(d){var configs=d.configs||[];sel.innerHTML='<option value="">-- 选择数据源 --</option>';configs.forEach(function(c){sel.innerHTML+='<option value="'+c.id+'">'+escHtml(c.name)+' ('+c.db_type+'/'+escHtml(c.database_name)+')</option>';});}).catch(function(){});}
+function loadDbConfigSelect(){var sel=document.getElementById('sqConfigSelect');if(!sel)return;huanzhenFetch('/api/database/configs').then(function(r){return r.json()}).then(function(d){var configs=d.configs||[];sel.innerHTML='<option value="">-- 选择数据源 --</option>';configs.forEach(function(c){sel.innerHTML+='<option value="'+c.id+'">'+escHtml(c.name)+' ('+c.db_type+'/'+escHtml(c.database_name)+')</option>';});}).catch(function(){});}
 
 function executeSmartQuery() {
   var configId = document.getElementById('sqConfigSelect').value;
@@ -906,7 +906,7 @@ function executeSmartQuery() {
   }
 
   // 用 ReadableStream 读取 SSE 流式响应（与主对话一致）
-  kejiFetch('/api/smart-query/stream', {method:'POST', headers:{'Content-Type':'application/json'},
+  huanzhenFetch('/api/smart-query/stream', {method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({query:query, config_id:parseInt(configId)})
   }).then(function(resp){
     if (!resp.ok) { throw new Error('请求失败 (' + resp.status + ')'); }
@@ -1054,7 +1054,7 @@ function setStatsFilter(range) {
 
 // ---- 加载与渲染 ----
 function loadStats() {
-  kejiFetch('/api/stats/tokens').then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/stats/tokens').then(function(r){return r.json()}).then(function(d){
     _statsData = d;
     renderAll();
   }).catch(function(){
@@ -1064,7 +1064,7 @@ function loadStats() {
 }
 
 function loadToolPage() {
-  kejiFetch('/api/stats/tools?days=30').then(function(r){return r.json()}).then(function(d){
+  huanzhenFetch('/api/stats/tools?days=30').then(function(r){return r.json()}).then(function(d){
     renderToolPage(d);
   }).catch(function(){});
 }
