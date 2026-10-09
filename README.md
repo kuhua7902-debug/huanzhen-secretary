@@ -100,6 +100,7 @@ HUANZHEN_ADMIN_PASSWORD=你想设置的管理员密码
 | `setup_deploy.bat` / `一键部署.bat` | 新机安装 Python 虚拟环境与依赖（调用 `scripts/deploy.ps1`） |
 | `launch_huanzhen.bat` / `启动幻帧.bat` | 后台启动服务并打开网页（无控制台窗口） |
 | `run_server.bat` / `运行服务.bat` | 带黑窗启动（排错时用，日志直接打印在窗口里） |
+| `诊断.bat` | **环境自检**：检查 Python/依赖/配置/端口/数据库/MCP，并给出修复命令（`诊断.bat --fix` 可自动补齐缺失的 `.env` / `config.yaml`） |
 | `启动幻帧语音助手.bat` | 启动语音助手（唤醒词 + 语音回复），密钥从 `.env` 读取 |
 | `package_wheels.bat` | 在本机重新打包离线 wheel（换 Python 版本时用） |
 | `build.bat` | PyInstaller 打包（产物在 `dist/`） |
@@ -190,6 +191,7 @@ A：检查 Windows 防火墙是否放行 **8000** 端口；用服务器内网 IP
 
 ## 更多文档
 
+- [**故障排查手册**（起不来 / 登录 / 模型 / 知识库 / 桌面自动化）](docs/故障排查.md)
 - [架构说明（当前代码结构、两个引擎、安全模型）](docs/幻帧架构总结.md)
 - [安全策略与密钥轮换](SECURITY.md)
 - [改动记录](CHANGELOG.md)

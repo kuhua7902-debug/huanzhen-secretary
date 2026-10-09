@@ -1,9 +1,7 @@
 offline_packages/pip_wheels/*.whl filter=lfs diff=lfs merge=lfs -text
 
 # Windows 批处理必须用 CRLF 行尾：LF 会让 cmd.exe 解析多行括号块失败
-# （历史问题：所有 .bat 曾被 git 转成 LF，导致「双击启动脚本一闪而过/报路径错误」）
+# （历史问题：所有 .bat 曾被 git 转成 LF，导致「双击启动脚本一闪而过 / 报路径错误」）
+# 注意：PowerShell 对 LF 兼容，故 .ps1 不做强制，避免无谓的行尾 diff。
 *.bat text eol=crlf
 *.cmd text eol=crlf
-
-# PowerShell 脚本同样按 CRLF 检出，避免换行导致的解析问题
-*.ps1 text eol=crlf

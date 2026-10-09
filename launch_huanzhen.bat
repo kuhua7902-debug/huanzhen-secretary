@@ -21,6 +21,30 @@ if not exist "%PY%" (
     exit /b 1
 )
 
+:: ── 1.5) 首次运行：自动补齐 .env / config.yaml ──
+if not exist ".env" (
+    echo [提示] 未找到 .env，正在从模板自动生成…
+    "%PY%" "%~dp0scripts\doctor.py" --fix >nul 2>nul
+    echo.
+    echo ============================================================
+    echo  首次运行需要填写两项配置，然后才能启动：
+    echo    1. HUANZHEN_ADMIN_PASSWORD = 你自己的管理员密码
+    echo    2. DEEPSEEK_API_KEY        = 你的模型密钥（其它模型的 key 亦可）
+    echo.
+    echo  现在将打开记事本，填写完成后保存并关闭，
+    echo  再重新双击本脚本即可启动。
+    echo  更多诊断：双击 诊断.bat
+    echo ============================================================
+    echo.
+    if exist ".env" start "" notepad ".env"
+    pause
+    exit /b 0
+)
+if not exist "config.yaml" (
+    echo [提示] 未找到 config.yaml，正在从模板自动生成…
+    copy /y "config.example.yaml" "config.yaml" >nul 2>nul
+)
+
 :: ── 2) 已在运行：直接打开页面 ──
 powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
 if not errorlevel 1 (
