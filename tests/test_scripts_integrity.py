@@ -47,6 +47,7 @@ def test_launcher_scripts_exist():
         "setup_deploy.bat",      # 一键部署
         "诊断.bat",              # 环境自检
         "停止服务.bat",          # 一键停止
+        "备份.bat",              # 数据备份
         "启动幻帧.bat",          # 中文别名
         "运行服务.bat",
     )
@@ -56,7 +57,7 @@ def test_launcher_scripts_exist():
 
 def test_backing_scripts_exist():
     """风险：bat 只是入口，真正干活的 ps1/py 被删后双击就会报错。"""
-    for rel in ("scripts/doctor.py", "scripts/stop_server.ps1", "scripts/deploy.ps1"):
+    for rel in ("scripts/doctor.py", "scripts/stop_server.ps1", "scripts/backup.py", "scripts/deploy.ps1"):
         assert (ROOT / rel).is_file(), f"缺少脚本：{rel}"
 
 

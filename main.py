@@ -34,8 +34,55 @@ async def get_adapter():
     return await _get_nanobot_adapter()
 
 
+def _load_backup_module():
+    """按路径加载 scripts/backup.py。
+
+    scripts/ 不是包，直接 `import backup` 会污染 sys.path 且有重名风险，
+    因此用 importlib 按文件路径加载。加载失败返回 None（备份是可选能力）。
+    """
+    import importlib.util
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "backup.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location("huanzhen_backup", path)
+    if not spec or not spec.loader:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _report_config_issues() -> None:
+    """启动时校验配置并把问题一次性打印出来。
+
+    只报告、不阻断（默认）：本地工具的首要目标是"能进去改配置"，
+    而不是配置一错就拒绝启动。设 HUANZHEN_STRICT_CONFIG=1 可改为严格模式。
+    """
+    try:
+        from core.config_check import blocking, format_banner, strict_mode, validate_config
+
+        issues = validate_config()
+        if not issues:
+            return
+        banner = format_banner(issues)
+        if blocking(issues):
+            logger.error("\n{}", banner)
+            if strict_mode():
+                raise RuntimeError(
+                    "配置存在阻断问题，已按 HUANZHEN_STRICT_CONFIG=1 拒绝启动"
+                )
+        else:
+            logger.warning("\n{}", banner)
+    except RuntimeError:
+        raise
+    except Exception as e:  # 校验本身出错绝不影响启动
+        logger.debug("配置校验跳过: {}", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _report_config_issues()
     sec = get_security_settings(reload=True)
     bootstrap_admin_if_needed()
     try:
@@ -68,13 +115,28 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.exception("后台引擎初始化失败: {}", e)
 
+    async def _auto_backup() -> None:
+        """每天最多自动备份一次数据（best-effort，失败绝不影响服务）。"""
+        await asyncio.sleep(3)  # 等主流程先就绪，避免与启动抢 IO
+        try:
+            module = _load_backup_module()
+            if module is None:
+                return
+            path = await asyncio.to_thread(module.maybe_auto_backup)
+            if path:
+                logger.info("已自动创建数据备份: {}", path)
+        except Exception as e:
+            logger.warning("自动备份跳过（不影响服务）: {}", e)
+
     init_task = asyncio.create_task(_init_engine())
+    backup_task = asyncio.create_task(_auto_backup())
     yield
-    init_task.cancel()
-    try:
-        await init_task
-    except asyncio.CancelledError:
-        pass
+    for _task in (init_task, backup_task):
+        _task.cancel()
+        try:
+            await _task
+        except asyncio.CancelledError:
+            pass
     try:
         ad = await get_adapter()
         await ad.stop_feishu_bridge()

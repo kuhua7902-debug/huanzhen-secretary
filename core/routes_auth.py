@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from core.database.db import get_db
 from core.security.deps import get_current_user
+from core.security.ratelimit import keys_for, login_limiter
 from core.security.users import (
     ROLES,
     CurrentUser,
@@ -26,12 +28,34 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 def login(req: LoginRequest, request: Request):
+    ip = _client_ip(request)
+    keys = keys_for(ip, req.username)
+
+    # ── 防爆破：先看是否处于锁定期 ──
+    wait = login_limiter.retry_after(keys)
+    if wait > 0:
+        logger.warning("登录被限流：ip={} user={} 需等待 {}s", ip, req.username, wait)
+        raise HTTPException(
+            status_code=429,
+            detail=f"尝试过于频繁，请 {wait} 秒后再试",
+            headers={"Retry-After": str(wait)},
+        )
+
     db = get_db()
     row = db.get_user_by_username(req.username)
-    if not row or not row.get("is_active"):
+    # 用户不存在与密码错误返回同一提示，避免暴露账号是否存在
+    if not row or not row.get("is_active") or not verify_password(req.password, row["password_hash"]):
+        lock = login_limiter.record_failure(keys)
+        if lock > 0:
+            logger.warning("登录失败次数过多，已锁定：ip={} user={} 锁定时长 {}s", ip, req.username, lock)
+            raise HTTPException(
+                status_code=429,
+                detail=f"失败次数过多，请 {lock} 秒后再试",
+                headers={"Retry-After": str(lock)},
+            )
         raise HTTPException(401, "用户名或密码错误")
-    if not verify_password(req.password, row["password_hash"]):
-        raise HTTPException(401, "用户名或密码错误")
+
+    login_limiter.record_success(keys)
     db.touch_user_login(row["id"])
     token, expires_in = create_access_token(row["id"], row["username"], row["role"])
     user = CurrentUser(

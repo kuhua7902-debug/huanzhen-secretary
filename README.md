@@ -104,6 +104,8 @@ HUANZHEN_ADMIN_PASSWORD=你想设置的管理员密码
 | `launch_huanzhen.bat` / `启动幻帧.bat` | 后台启动服务并打开网页（无控制台窗口） |
 | `run_server.bat` / `运行服务.bat` | 带黑窗启动（排错时用，日志直接打印在窗口里） |
 | `诊断.bat` | **环境自检**：检查 Python/依赖/配置/端口/数据库/MCP，并给出修复命令（`诊断.bat --fix` 可自动补齐缺失的 `.env` / `config.yaml`） |
+| `停止服务.bat` | **一键停止**服务（按端口精确定位，只结束幻帧的 python 进程） |
+| `备份.bat` | **数据备份**：打包数据库 / 配置 / 安全文件到 `data\backups\`（默认保留最近 7 份；服务启动时每天自动备份一次） |
 | `启动幻帧语音助手.bat` | 启动语音助手（唤醒词 + 语音回复），密钥从 `.env` 读取 |
 | `package_wheels.bat` | 在本机重新打包离线 wheel（换 Python 版本时用） |
 | `build.bat` | PyInstaller 打包（产物在 `dist/`） |
