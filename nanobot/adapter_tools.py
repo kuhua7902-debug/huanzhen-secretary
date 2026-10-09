@@ -18,7 +18,7 @@ _FUNC_CACHE: dict[str, Callable] = {}
 _MODULES = ["core.new_tools", "core.archive_tools", "core.ocr_tools",
             "core.email_tools", "core.filetools_organize", "core.tools",
             "core.db_tools", "core.desktop_tools", "core.gui_tools",
-            "core.workflow_tools"]
+            "core.uia_tools", "core.office_com_tools", "core.workflow_tools"]
 
 
 def _get_func(name: str) -> Callable | None:
@@ -38,7 +38,7 @@ def _get_func(name: str) -> Callable | None:
 
 # ── 幻帧工具类 ──
 
-class KejiTool(Tool):
+class HuanzhenTool(Tool):
     """通用幻帧工具包装：import 函数 -> asyncio.to_thread 执行"""
 
     def __init__(self, name: str, description: str, param_schema: dict, required: list[str] | None = None):
@@ -99,11 +99,32 @@ class KejiTool(Tool):
                 "close_window",
                 "open_application",
                 "run_command",
+                "uia_",
+                "office_",
                 "confirm_dangerous_action",
                 "record_workflow",
                 "replay_workflow",
             )
         )
+
+    def _call_hint(self) -> str:
+        """把真实函数签名拼成一行「正确用法」，用于参数错误时回给模型。"""
+        try:
+            import inspect
+
+            if self._func is None:
+                return f"{self._name}(...)"
+            parts: list[str] = []
+            for p in inspect.signature(self._func).parameters.values():
+                if p.kind in (p.VAR_KEYWORD, p.VAR_POSITIONAL):
+                    continue
+                text = p.name
+                if p.default is not inspect.Parameter.empty:
+                    text += f"={p.default!r}"
+                parts.append(text)
+            return f"{self._name}({', '.join(parts)})"
+        except Exception:
+            return f"{self._name}(...)"
 
     async def execute(self, **kwargs: Any) -> str:
         logger.info("Tool: {} args={}", self._name, str(kwargs)[:200])
@@ -131,6 +152,16 @@ class KejiTool(Tool):
             return (proc.stderr or "")[-300:] or "(无输出)"
         except asyncio.TimeoutError:
             return f"超时: {self._name}"
+        except TypeError as e:
+            # 参数名/个数不对 —— 把「正确签名」直接回给模型，避免它反复猜参数名。
+            # 实测：模型在 screenshot_and_analyze 上依次猜 prompt/task/instruction，
+            # 每次猜错都浪费一轮，最终卡在原地不动。
+            return (
+                f"参数错误：{e}\n"
+                f"正确用法：{self._call_hint()}\n"
+                f"请严格使用上面的参数名重新调用，不要继续猜测其它名字；"
+                f"若该工具本身不合适，请改调其它工具。"
+            )
         except Exception as e:
             return f"错误: {type(e).__name__}: {str(e)[:200]}"
 
@@ -294,7 +325,11 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
      {"command": {"type": "string", "description": "要执行的 shell 命令"},
       "timeout": {"type": "integer", "description": "超时秒数，默认60，最大300"}},
      ["command"]),
-    ("open_application", "启动电脑上的应用程序，或用默认程序打开文件/网页。支持 wps/word/excel/powerpoint/notepad/chrome/edge 等。示例：open_application('wps')、open_application('chrome', 'https://www.google.com')、open_application('wps', 'D:\\\\文档\\\\报告.docx')",
+    ("open_application",
+     "启动电脑上的应用程序，或用默认程序打开文件/网页。支持 wps/word/excel/powerpoint/notepad/chrome/edge 等。"
+     "⭐会自动等待并识别被拉起窗口，返回其 hwnd（句柄）——拿到 hwnd 后请立即改用 UI Automation 工具精确定位控件"
+     "（uia_dump_tree / uia_click_element / uia_set_text），不要再截图+视觉找按钮。"
+     "示例：open_application('wps')、open_application('chrome', 'https://www.google.com')、open_application('wps', 'D:\\\\文档\\\\报告.docx')",
      {"app_name": {"type": "string", "description": "程序名称或完整 exe 路径"},
       "args": {"type": "string", "description": "启动参数，如要打开的文件路径或网址（可选）"}},
      ["app_name"]),
@@ -303,6 +338,39 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
       "save_dir": {"type": "string", "description": "保存目录，默认下载到桌面"},
       "filename": {"type": "string", "description": "保存的文件名（可选）"}},
      ["url"]),
+
+    # ── 第0级：Office/WPS COM 自动化（有原生接口就用它，秒级且稳定）──
+    ("office_create_document",
+     "⭐第0级（最快）：用 Office/WPS 的 COM 自动化接口直接命令应用新建文档、写入内容并另存为，"
+     "不走截图/视觉/鼠标模拟，秒级完成且稳定。visible=true 时用户能看着 WPS/Word 界面自动生成内容。"
+     "适合：写文章/报告/通知并保存到指定目录。"
+     "示例：office_create_document('正文内容', title='我站在未来等你', save_path='E:\\\\docx文档\\\\我站在未来等你.docx')",
+     {"content": {"type": "string", "description": "文档正文内容（必填）"},
+      "title": {"type": "string", "description": "文档标题（可选，作为首行居中加粗显示）"},
+      "save_path": {"type": "string", "description": "另存为完整路径(.docx)，如 E:\\\\docx文档\\\\标题.docx；留空则只新建不保存"},
+      "app": {"type": "string", "description": "应用：wps(默认)/word；也支持 et/excel、wpp/ppt"},
+      "visible": {"type": "boolean", "description": "是否显示应用窗口（默认 true，方便用户观看）"}},
+     ["content"]),
+    ("office_new_document",
+     "⭐在已打开的 WPS/Word 里新建空白文档，返回新文档窗口的 hwnd。"
+     "专治「WPS 首页是自绘界面、uia 读不到『新建』按钮」：优先用快捷键 Ctrl+N（自绘首页也能触发），"
+     "失败回退 COM 新建（可见）。拿到 hwnd 后即可用 uia_* 在编辑区定位控件、用 uia_set_text/type_text 输入正文。"
+     "示例：office_new_document(app='wps')",
+     {"app": {"type": "string", "description": "应用：wps(默认)/word"},
+      "timeout": {"type": "number", "description": "等待新窗口出现的秒数，默认10"}},
+     []),
+    ("office_demo_typewrite",
+     "⭐⭐录屏专用：在 WPS/Word 里新建文档，像真人一样【逐字打字】标题与正文，最后另存为。"
+     "全程确定性、节奏稳定，约 8~20 秒完成，画面连续无干等，适合录作品集/演示视频。"
+     "不截图、不用视觉模型，一次调用完成整个演示。"
+     "示例：office_demo_typewrite(content='...', title='那一天，我捂了', save_path='E:\\\\docx文档\\\\那一天，我捂了.docx', chars_per_second=45)",
+     {"content": {"type": "string", "description": "正文内容（必填），用 \\n 分段"},
+      "title": {"type": "string", "description": "标题（可选，居中加粗大字）"},
+      "save_path": {"type": "string", "description": "另存为完整路径(.docx)；留空则只打字不保存"},
+      "app": {"type": "string", "description": "应用：wps(默认)/word"},
+      "chars_per_second": {"type": "number", "description": "打字速度(字/秒)，默认45；想更从容设25，想更快设80"},
+      "visible": {"type": "boolean", "description": "是否显示应用窗口（录屏必须 true，默认 true）"}},
+     ["content"]),
 
     # ── GUI 视觉工具（阶段一：让 agent 有"眼睛"）──
     ("screenshot_and_analyze",
@@ -388,6 +456,86 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
       "timeout": {"type": "number", "description": "最大等待秒数，默认10"},
       "interval": {"type": "number", "description": "每次重试间隔秒数，默认1"}},
      ["target_description"]),
+
+    # ── UI Automation 精确定位（桌面自动化第一级，优先于视觉）──
+    ("uia_dump_tree",
+     "⭐UI Automation 控件树：导出指定窗口内控件层级（名称/类型/AutomationId/位置）。"
+     "桌面自动化第一步：先看清窗口里有哪些控件，再决定用 uia_click_element / uia_set_text 精确操作。"
+     "比截图+视觉模型快几十倍。示例：uia_dump_tree('WPS Office')、uia_dump_tree(hwnd=123456, depth=4)",
+     {"window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一；都为空则用前台窗口"},
+      "hwnd": {"type": "integer", "description": "窗口句柄（open_application/list_windows 返回），优先级高于 window"},
+      "depth": {"type": "integer", "description": "递归深度，默认3，最大6"},
+      "max_nodes": {"type": "integer", "description": "最多导出多少节点，默认200"},
+      "name_filter": {"type": "string", "description": "只显示名称包含该关键词的节点（可选）"}},
+     []),
+    ("uia_find_element",
+     "⭐UI Automation 精确查找控件（不点击）：按名称/类型/AutomationId 定位，返回类型与坐标。"
+     "毫秒级、不截图。示例：uia_find_element('保存', window='WPS Office')、uia_find_element(automation_id='btnOK')",
+     {"name": {"type": "string", "description": "控件名称（文本），如'保存'、'确定'。exact=false 时为包含匹配"},
+      "window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一；都为空则用前台窗口"},
+      "hwnd": {"type": "integer", "description": "窗口句柄，优先级高于 window"},
+      "control_type": {"type": "string", "description": "控件类型过滤，如'按钮'/'Button'/'Edit'/'MenuItem'（可选）"},
+      "automation_id": {"type": "string", "description": "控件 AutomationId（最稳定的定位方式，可选）"},
+      "exact": {"type": "boolean", "description": "名称是否精确匹配，默认 false"},
+      "search_depth": {"type": "integer", "description": "搜索深度，默认8"},
+      "timeout": {"type": "number", "description": "等待控件出现的秒数，默认3"}},
+     []),
+    ("uia_click_element",
+     "⭐⭐UI Automation 精确点击控件（桌面自动化首选，优先于 click_element）："
+     "按名称/类型/AutomationId 定位并点击，优先用 InvokePattern（后台调用、不移动鼠标、不受窗口遮挡影响）。"
+     "毫秒级完成。示例：uia_click_element('保存', window='WPS Office')、uia_click_element('确定', control_type='按钮')",
+     {"name": {"type": "string", "description": "控件名称（文本），如'保存'、'确定'"},
+      "window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一；都为空则用前台窗口"},
+      "hwnd": {"type": "integer", "description": "窗口句柄，优先级高于 window"},
+      "control_type": {"type": "string", "description": "控件类型过滤，如'按钮'/'Button'/'MenuItem'（可选）"},
+      "automation_id": {"type": "string", "description": "控件 AutomationId（可选，最稳定）"},
+      "exact": {"type": "boolean", "description": "名称是否精确匹配，默认 false"},
+      "clicks": {"type": "integer", "description": "点击次数，1=单击(默认) 2=双击"},
+      "prefer_invoke": {"type": "boolean", "description": "是否优先用 InvokePattern 后台调用，默认 true"},
+      "search_depth": {"type": "integer", "description": "搜索深度，默认8"},
+      "timeout": {"type": "number", "description": "等待控件出现的秒数，默认5"}},
+     []),
+    ("uia_wait_element",
+     "⭐UI Automation 等待控件出现（毫秒级轮询，不截图）。"
+     "用于'等应用加载完成再操作'，比 wait_for_element 快得多。"
+     "示例：uia_wait_element('新建', window='WPS Office', timeout=15)",
+     {"name": {"type": "string", "description": "控件名称（文本）"},
+      "window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一"},
+      "hwnd": {"type": "integer", "description": "窗口句柄，优先级高于 window"},
+      "control_type": {"type": "string", "description": "控件类型过滤，如'按钮'（可选）"},
+      "automation_id": {"type": "string", "description": "控件 AutomationId（可选）"},
+      "exact": {"type": "boolean", "description": "名称是否精确匹配，默认 false"},
+      "search_depth": {"type": "integer", "description": "搜索深度，默认8"},
+      "timeout": {"type": "number", "description": "最大等待秒数，默认10"}},
+     []),
+    ("uia_set_text",
+     "⭐UI Automation 向控件写入文本：优先 ValuePattern.SetValue（直接写值、不依赖焦点/输入法），"
+     "失败退回聚焦+键盘输入。适合输入框/编辑区填内容。"
+     "示例：uia_set_text('季度报告', name='文件名', window='另存为')",
+     {"text": {"type": "string", "description": "要写入的文本（必填）"},
+      "name": {"type": "string", "description": "目标控件名称，如'文件名'、'搜索'"},
+      "window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一"},
+      "hwnd": {"type": "integer", "description": "窗口句柄，优先级高于 window"},
+      "control_type": {"type": "string", "description": "控件类型过滤，如'Edit'/'输入框'（可选）"},
+      "automation_id": {"type": "string", "description": "控件 AutomationId（可选）"},
+      "exact": {"type": "boolean", "description": "名称是否精确匹配，默认 false"},
+      "clear_first": {"type": "boolean", "description": "写入前是否清空原内容，默认 true"},
+      "search_depth": {"type": "integer", "description": "搜索深度，默认8"},
+      "timeout": {"type": "number", "description": "等待控件出现的秒数，默认5"}},
+     ["text"]),
+    ("uia_get_text",
+     "⭐UI Automation 读取控件文本（比截图+视觉更准）：返回控件的名称与当前值，"
+     "适合读取输入框内容、状态栏文字、列表项文本等结构化数据。"
+     "示例：uia_get_text(name='文件名', window='另存为')",
+     {"name": {"type": "string", "description": "控件名称（文本）"},
+      "window": {"type": "string", "description": "窗口标题（模糊匹配），与 hwnd 二选一"},
+      "hwnd": {"type": "integer", "description": "窗口句柄，优先级高于 window"},
+      "control_type": {"type": "string", "description": "控件类型过滤（可选）"},
+      "automation_id": {"type": "string", "description": "控件 AutomationId（可选）"},
+      "exact": {"type": "boolean", "description": "名称是否精确匹配，默认 false"},
+      "search_depth": {"type": "integer", "description": "搜索深度，默认8"},
+      "timeout": {"type": "number", "description": "等待控件出现的秒数，默认3"}},
+     []),
 
     # ── 阶段二：窗口管理 ──
     ("list_windows",
@@ -491,11 +639,11 @@ TOOL_DEFS: list[tuple[str, str, dict, list[str] | None]] = [
 ]
 
 
-def register_keji_tools(registry: ToolRegistry, project_root: Path):
+def register_huanzhen_tools(registry: ToolRegistry, project_root: Path):
     for item in TOOL_DEFS:
         name, desc, params, required = item[0], item[1], item[2], item[3] if len(item) > 3 else None
         try:
-            registry.register(KejiTool(name, desc, params, required))
+            registry.register(HuanzhenTool(name, desc, params, required))
         except Exception as e:
             logger.warning("注册 {} 失败: {}", name, e)
     logger.info("幻帧工具注册完成: {} 个", len(TOOL_DEFS))

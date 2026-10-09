@@ -11,7 +11,7 @@
 - Pillow         图片处理（pyautogui 依赖，会自动装）
 
 注意：本模块的所有函数都会被 nanobot/adapter_tools.py 动态 import 并注册为工具，
-函数签名和返回值（str）必须符合 KejiTool 的约定。
+函数签名和返回值（str）必须符合 HuanzhenTool 的约定。
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from core.logger import setup_logger
 from core.gui_abort import is_aborted, trigger_abort
 from core.tools import register_tool
 
-logger = setup_logger("keji.gui_tools")
+logger = setup_logger("huanzhen.gui_tools")
 
 # ── Windows DPI 感知：让截图返回物理像素，而非缩放后的逻辑像素 ──
 import ctypes as _ctypes
@@ -355,11 +355,11 @@ def confirm_dangerous_action(action_description: str, details: str = "") -> str:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        msg = f"Keji Agent 准备执行以下操作：\n\n【操作】{action_description}"
+        msg = f"Huanzhen Agent 准备执行以下操作：\n\n【操作】{action_description}"
         if details:
             msg += f"\n\n【详情】{details}"
         msg += "\n\n是否允许？"
-        result = messagebox.askyesno("Keji Agent 操作确认", msg, parent=root)
+        result = messagebox.askyesno("Huanzhen Agent 操作确认", msg, parent=root)
         root.destroy()
         return "confirmed" if result else "cancelled"
     except Exception as e:

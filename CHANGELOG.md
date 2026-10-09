@@ -6,6 +6,59 @@
 
 ## [未发布]
 
+### 新增
+
+- **桌面自动化加入 UI Automation「第一级」精确定位。** 过去桌面操作只有一条路：
+  截图 → 视觉模型 → 坐标点击，每步 1~5 秒且烧大量视觉 token，稳定性受 DPI /
+  分辨率 / 窗口位置影响 —— 典型症状是「打开 WPS 点一个菜单」要绕很久。
+  新增 `core/uia_tools.py`，基于 Windows 控件树（`uiautomation`，依赖本已随
+  `requirements.txt` 安装但从未被使用），提供 6 个毫秒级工具：
+  `uia_dump_tree`（导出控件树）、`uia_find_element`（精确查找）、
+  `uia_click_element`（优先 InvokePattern 后台点击，不移动鼠标）、
+  `uia_wait_element`（毫秒级等待）、`uia_set_text`（ValuePattern 写值）、
+  `uia_get_text`（读取控件真实值）。已同时注册进 legacy 注册表与 Web 的
+  `TOOL_DEFS`，并在 `core/security/permissions.py` 登记为写类（只读账号默认拒绝）。
+- **`open_application` 改为「确定性」返回窗口句柄。** 启动时追踪本次拉起的
+  进程 PID，并对比启动前后的顶层窗口，自动识别出被拉起的窗口，返回值里带上
+  **`hwnd`（句柄）** 与后续使用 `uia_*` 的指引；不再要求模型猜窗口标题。
+  实测：`open_application('notepad')` 直接返回 `hwnd`，`uia_dump_tree(hwnd=...)`
+  一次读出 `DocumentControl('文本编辑器')`、菜单栏、标题栏按钮，
+  `uia_click_element(name='关闭', ...)` 一步关闭，全程零截图、零视觉模型。
+- **系统提示词写入「三级降级」策略**（`prompts/system.md`）：
+  ① UI Automation 精确定位（首选）→ ② 浏览器走 puppeteer MCP →
+  ③ 视觉+坐标兜底（仅当 uia 找不到控件时）。明确禁止「为点一个按钮先
+  `screenshot_and_analyze` 绕一大圈」。
+- **新增「第 0 级：应用级 API」——`core/office_com_tools.py`。**
+  实测发现 WPS 主窗口是自绘的 `KPromeMainWindow`，UIA 只能看到 3 个匿名
+  `GroupControl`（控件树对 WPS 首页同样无效）。但 WPS 注册了完整 COM 自动化
+  （`KWPS.Application` / `Word.Application` / `KET.Application` / `KWPP.Application`），
+  于是新增 `office_create_document`：通过 COM **直接命令应用**新建文档、写入内容、
+  另存为，不经过截图/视觉/鼠标模拟。`visible=True` 时用户照样能看到界面自动生成。
+  实测：生成《我站在未来等你》并保存到 `E:\docx文档\` **耗时 1.99 秒**，
+  而同一任务走视觉路径 30 秒仍在截图找窗口。已注册进 legacy 注册表与
+  `TOOL_DEFS`，并在权限模块登记为写类。
+- **修复「工具报参数错后模型无限瞎猜参数名」。** 实测模型在
+  `screenshot_and_analyze` 上依次猜 `prompt` / `task` / `instruction`（正确是
+  `question`），每猜错一次浪费一轮，最终卡死在原地。现在 `HuanzhenTool.execute`
+  单独捕获 `TypeError`，用 `_call_hint()` 把**真实函数签名**回给模型，
+  并明确要求"按给出的参数名重调、不要继续猜名字"。这一类"猜参数名卡死"被整体消除。
+- **`uia_dump_tree` 识别自绘界面并给出逃生路径。** 此前它对 WPS 这类自绘窗口只返回
+  "5 个匿名 GroupControl"，却不告诉模型"这条路是死的"，模型于是在
+  「dump → 截图 → 猜参数」之间打转。现在当节点里没有任何具名控件时，会明确提示
+  改用：①快捷键 ②`office_create_document` 等应用级 API ③视觉兜底，并提示不要重复 dump。
+- **新增 `office_new_document`：用 `Ctrl+N` 绕过 WPS 自绘首页。** WPS 首页
+  (`KPromeMainWindow`) 不暴露控件，但键盘快捷键有效——先 `focus_window` 再
+  `press_key('ctrl+n')` 即可新建，随后返回新文档窗口 hwnd（编辑区是标准 Word 式 UI，
+  uia 可读）；快捷键失败时回退 COM `Documents.Add()`（可见）。
+  实测补充：WPS 会**复用同一个 hwnd** 只改标题（`WPS Office` → `文字文稿1 - WPS Office`），
+  因此检测逻辑同时覆盖"新窗口"与"同窗口标题变化"两种情况。
+- **新增 `office_demo_typewrite`：录屏专用的「逐字打字」演示工具。**
+  做演示视频时"快"和"好看"要同时满足：视觉路径每步 1~5 秒、画面全是干等；
+  而 `office_create_document` 是瞬间出现全文、没有过程感。该工具用 COM 自身 API
+  按固定节奏（`chars_per_second`，默认 45 字/秒）逐块写入，画面像真人在打字，
+  全程确定性、可重复录制，且只需 1 次 LLM 回合。
+  实测：116 字（标题《那一天，我捂了》+ 正文）**11.35 秒**完成打字并另存为。
+
 ### 安全（重要）
 
 - **轮换历史泄露的密钥。** `启动幻帧语音助手.bat` 曾硬编码 4 个真实 API Key
@@ -86,17 +139,24 @@
 
 ### 变更
 
-- **环境变量命名兼容。** 产品由「科吉 / Keji」更名为「幻帧 / Huanzhen」，
-  `config.example.yaml` 与 README 早已使用 `HUANZHEN_*`，但代码只认 `KEJI_*` ——
-  按文档配置的用户实际拿不到管理员密码 / JWT 密钥。现在 `HUANZHEN_*` 优先、
-  `KEJI_*` 兜底，两者都可用。
-- **`database.path` 配置生效。** 此前 SQLite 路径硬编码为 `data/keji.db`，
-  配置项被忽略。现在会读取 `database.path`，但**只认已存在的文件**，
-  避免"配置写错 → 悄悄新建空库 → 历史对话全看不见"。默认路径不变。
+- **命名统一为「幻帧 / Huanzhen」。** 早前的「科吉 / Keji」命名残留已全量清理：
+  代码标识（`KejiAdapter`→`HuanzhenAdapter`、`KejiTool`→`HuanzhenTool`、
+  `register_keji_tools`→`register_huanzhen_tools`）、日志 logger（`keji.*`→`huanzhen.*`）、
+  前端全局函数与 `localStorage` 键（`kejiFetch`/`keji_token` 等 → `huanzhen*`）、
+  数据库文件名（`data/keji.db`→`data/huanzhen.db`）、向量集合名
+  （`keji_documents`→`huanzhen_documents`）、脚本与文档一并更新。
+  为不丢既有数据，旧库文件与旧向量集合会在启动时**自动改名迁移**；
+  历史 `KEJI_*` 环境变量与历史加密盐仍可识别（见下）。
+- **环境变量命名兼容。** `config.example.yaml` 与 README 使用 `HUANZHEN_*`；
+  大量既有部署的 `.env` 仍是历史 `KEJI_*`。现在 `HUANZHEN_*` 优先、
+  `KEJI_*` 兜底，两者都可用（`core/security/secrets.py::ENV_ALIASES`）。
+- **`database.path` 配置生效。** 此前 SQLite 路径硬编码，配置项被忽略。
+  现在会读取 `database.path`，但**只认已存在的文件**，
+  避免"配置写错 → 悄悄新建空库 → 历史对话全看不见"。默认路径为 `data/huanzhen.db`。
 - **启动日志降噪。** 飞书 / OpenAI / Tavily / Picovoice / GitHub 等可选环境变量未设置时
   不再刷 WARNING（降为 DEBUG）。README 常见问题里"启动后一堆环境变量未设置警告"
   即由此而来。
-- `KejiTool` 新增 `read_only` / `exclusive`：权限判定统一复用
+- `HuanzhenTool` 新增 `read_only` / `exclusive`：权限判定统一复用
   `core.security.permissions`，避免两处各维护一份名单；
   GUI / 桌面类工具标记为 `exclusive`，开启并发执行时不会互相打断。
 

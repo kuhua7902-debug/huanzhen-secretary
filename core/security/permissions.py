@@ -14,7 +14,7 @@
   是安全的失败方向。
 
 判定入口只有一个：``is_write_tool()``。
-``nanobot/adapter_tools.py`` 的 ``KejiTool.read_only`` 也复用它，避免两处各写一份名单。
+``nanobot/adapter_tools.py`` 的 ``HuanzhenTool.read_only`` 也复用它，避免两处各写一份名单。
 """
 
 from __future__ import annotations
@@ -118,6 +118,17 @@ WRITE_TOOL_NAMES = frozenset({
     "screenshot_screen",
     "screenshot_and_analyze",
     "screenshot_and_find",
+    # UI Automation 精确定位（桌面自动化的写类操作，只读账号默认拒绝）
+    "uia_dump_tree",
+    "uia_find_element",
+    "uia_click_element",
+    "uia_wait_element",
+    "uia_set_text",
+    "uia_get_text",
+    # Office/WPS COM 自动化（会新建/写入/保存文档，写类）
+    "office_create_document",
+    "office_new_document",
+    "office_demo_typewrite",
     # 数据库写操作
     "db_execute_query",
     "db_disconnect",

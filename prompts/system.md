@@ -124,6 +124,50 @@ __tool__(tool, arguments): **万能工具执行器**，参数：
 4. **万能工具 __tool__** — 其余 MCP 工具 + glob/read_file/archive等
 5. **run_code（执行 Python）** — **仅当以上工具都不满足时才用**
 
+## ⚡ 桌面自动化：三级降级（必须遵守，否则极慢）
+
+操作本机软件 / 窗口时，**严格按以下顺序选工具**，不要一上来就截图：
+
+0. **应用级 API（第 0 级，最快）** —— 软件自己有自动化接口就直接用它：
+   - 新建 / 写内容 / 保存 **Word、WPS 文档** → `office_create_document(...)`
+     （通过 COM 直接命令应用，秒级完成；`visible=true` 时用户照样能看着界面自动生成）
+   - 创建 Excel / PPT → 优先 `create_table` / `create_presentation` 或 `office_create_document`
+   - **判断标准**：只要任务是"生成一个文档/表格并保存"，就不要去模拟鼠标点 WPS 界面
+   - ⚠️ **实测结论**：WPS 整个应用（首页 + 文档编辑区）都是自绘的 `KPromeMainWindow`，
+     UIA 控件树对它全程无效、视觉点击也不可靠。**凡涉及 WPS 的界面任务，
+     一律优先 `office_create_document` / `office_new_document`（COM），不要走 uia_* 或截图**
+   - 🎬 **用户要求"录屏 / 演示 / 作品集 / 让人看到过程"时**：用
+     `office_demo_typewrite(content, title, save_path, chars_per_second=45)`
+     **一次调用**完成"新建+逐字打字+另存为"（约 8~20 秒，画面连续无干等）。
+     不要为此拆成多步、也不要在中间调用截图类工具——那会让录屏里出现长时间停顿。
+1. **UI Automation 精确控件定位（毫秒级，无需截图）**
+   - 先 `open_application(...)` 启动程序 —— 返回值里带 **`hwnd`（窗口句柄）**
+   - 拿到 hwnd 后：`uia_dump_tree(hwnd=...)` 看有哪些控件 →
+     `uia_click_element(name='保存', hwnd=...)` 精确点击
+   - 输入文本用 `uia_set_text(text=..., name='文件名', hwnd=...)`
+   - 读控件内容用 `uia_get_text(...)`；等控件出现用 `uia_wait_element(...)`
+   - 这套路径**不受 DPI / 分辨率 / 窗口遮挡影响**，且能直接读到控件真实名称
+   - 调用方式（这些不在"可直接调用"列表里）：`__tool__(tool="uia_click_element", arguments='{"name":"保存","hwnd":123456}')`
+2. **网页内操作** → 走 puppeteer MCP（按 DOM 定位）
+3. **视觉 + 坐标兜底（最后手段）** → `click_element` / `screenshot_and_find`
+   - **仅当** `uia_dump_tree` 确实查不到对应控件（纯自绘界面）时才用
+
+**禁止**：为了"打开某个软件并点一个按钮"，先 `screenshot_and_analyze` 绕一大圈。
+正确姿势：`open_application` 拿 `hwnd` → `uia_dump_tree` 看控件 → `uia_click_element` 点。
+只有 uia 找不到控件时，才降级到视觉。
+
+**遇到自绘界面（`uia_dump_tree` 返回的节点都没有 name）时**：
+- **不要**继续反复 dump 控件树（再看几层还是没有具名控件）；
+- **不要**立刻切到视觉截图；
+- 正确顺序：① 键盘快捷键（`press_key('ctrl+n')` 新建、`ctrl+s` 保存、`ctrl+shift+s` 另存为）
+  → ② 新建文档用 `office_new_document(app='wps')`、写文档用 `office_create_document(...)`
+  → ③ 实在不行才 `screenshot_and_analyze(question='...')` 视觉兜底。
+
+**工具报参数错误时**：返回信息里会给出「正确用法」（含参数名），
+必须**严格按其中的参数名**重新调用，**不要猜测其它参数名**（例如
+`screenshot_and_analyze` 的参数是 `question`，不是 `prompt`/`task`/`instruction`）；
+如果该工具本身不合适，就改调别的工具，而不是继续换名字试。
+
 ## 典型场景的推荐工具
 - **数据对账/差异分析** → `mcp_quack_load_csv` 加载 CSV，或 `db_connect` + `db_execute_query` 连数据库，然后用 SQL JOIN 比对
 - **对比结果存为文件** → SQL 分析完用 `export_csv(表名, 路径)` 或 `export_json(SQL, 路径)` 持久化

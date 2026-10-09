@@ -20,7 +20,7 @@ import requests
 from core.tools import register_tool
 from core.logger import setup_logger
 
-logger = setup_logger("keji.desktop")
+logger = setup_logger("huanzhen.desktop")
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -349,8 +349,8 @@ def _is_console_exe(path: str) -> bool:
         return False
 
 
-def _launch_executable(exe_path: str, argv: list[str]) -> None:
-    """直接启动可执行文件本体，不经过任何 shell。
+def _launch_executable(exe_path: str, argv: list[str]) -> "subprocess.Popen | None":
+    """直接启动可执行文件本体，不经过任何 shell，返回 Popen（便于追踪 PID）。
 
     安全说明：参数以列表 + shell=False 传递，Windows 按 CreateProcess 的标准规则
     拼装命令行，argv 里的 & | ^ > %VAR% 等字符只是普通字符，不存在 cmd.exe
@@ -372,13 +372,94 @@ def _launch_executable(exe_path: str, argv: list[str]) -> None:
             | getattr(subprocess, "DETACHED_PROCESS", 0)
         )
 
-    subprocess.Popen(
+    return subprocess.Popen(
         [exe_path, *argv],
         shell=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=creationflags,
     )
+
+
+# ── 启动后「确定性地」找到这次拉起的窗口 ──
+# 这是删掉视觉绕路的根因：过去 open_application 返回后不告诉模型窗口句柄，
+# 模型只能截图→视觉模型找窗口→再找按钮，每一步 1~5 秒。现在直接把
+# hwnd + 标题 交给模型，后续可全部走 uia_* 精确定位，不再需要「看」。
+
+def _list_top_level_windows() -> dict[int, str]:
+    """返回所有「可见且带标题」的顶层窗口 {hwnd: title}（用于启动前后对比）。"""
+    if not _IS_WINDOWS:
+        return {}
+    try:
+        import win32gui
+    except ImportError:
+        return {}
+
+    out: dict[int, str] = {}
+
+    def _cb(hwnd, _lparam):
+        try:
+            if win32gui.IsWindowVisible(hwnd):
+                title = (win32gui.GetWindowText(hwnd) or "").strip()
+                if title:
+                    out[int(hwnd)] = title
+        except Exception:
+            pass
+        return True
+
+    try:
+        win32gui.EnumWindows(_cb, None)
+    except Exception:
+        return {}
+    return out
+
+
+def _window_pid(hwnd: int) -> int:
+    try:
+        import win32process
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return int(pid or 0)
+    except Exception:
+        return 0
+
+
+def _detect_launch_window(
+    pid: int,
+    before: dict[int, str],
+    title_hint: str,
+    timeout: float = 12.0,
+) -> tuple[int, str]:
+    """识别本次启动对应的主窗口，返回 (hwnd, title)；未识别到返回 (0, "")。
+
+    优先级：
+      1) 属于本次启动进程（pid）的窗口 —— 最准；
+      2) 标题命中 title_hint（模糊）；
+      3) 启动前后新出现的窗口 —— 兜底（launcher 进程转交给子进程时靠它）。
+    """
+    if not _IS_WINDOWS:
+        return 0, ""
+
+    deadline = time.time() + max(0.0, timeout)
+    while time.time() < deadline:
+        current = _list_top_level_windows()
+
+        if pid:
+            for hwnd in current:
+                if _window_pid(hwnd) == pid:
+                    return hwnd, current[hwnd]
+
+        if title_hint:
+            key = title_hint.lower()
+            for hwnd, title in current.items():
+                if key in title.lower():
+                    return hwnd, title
+
+        for hwnd, title in current.items():
+            if hwnd not in before:
+                return hwnd, title
+
+        time.sleep(0.25)
+    return 0, ""
 
 
 def _wait_for_window(title: str, timeout: float = 12.0, poll_interval: float = 0.3) -> bool:
@@ -423,6 +504,9 @@ def _wait_for_window(title: str, timeout: float = 12.0, poll_interval: float = 0
         "启动电脑上的应用程序，或用默认程序打开文件/网页。"
         "支持常见软件：wps/word/excel/powerpoint/notepad/chrome/edge/"
         "explorer/calc/paint/cmd/taskmgr 等，也可传完整 exe 路径。"
+        "⭐会自动等待并识别被拉起窗口，返回其 hwnd（句柄）——"
+        "拿到 hwnd 后请立即改用 UI Automation 工具精确定位控件"
+        "（uia_dump_tree / uia_click_element / uia_set_text），不要再截图+视觉找按钮。"
         "示例：open_application('notepad')、open_application('chrome', 'https://www.google.com')、"
         "open_application('wps', 'D:\\\\文档\\\\报告.docx')"
     ),
@@ -438,8 +522,9 @@ def _wait_for_window(title: str, timeout: float = 12.0, poll_interval: float = 0
         "wait_window": {
             "type": "string",
             "description": (
-                "启动后等待出现的窗口标题（模糊匹配），如 '计算器' / '记事本'。"
-                "留空则不等待。建议为 GUI 程序传入此参数，确保窗口渲染完成后再返回。"
+                "可选：额外强调要等待的窗口标题（模糊匹配），如 '计算器' / '记事本'。"
+                "一般留空即可——工具会自动识别本次启动的窗口并返回 hwnd；"
+                "只有当自动识别不准时，才需要用它显式指定。"
             ),
         },
     },
@@ -478,6 +563,11 @@ def open_application(app_name: str, args: str = "", wait_window: str = "") -> st
             logger.info("open_application: %s 经 App Paths 解析为 %s", app_name, registered)
             exe_path = registered
 
+    # 启动前快照现有顶层窗口，用于启动后识别「这次拉起的是哪个窗口」
+    before_windows = _list_top_level_windows() if _IS_WINDOWS else {}
+    launched_pid = 0
+    is_gui_launch = False
+
     try:
         if _IS_WINDOWS:
             # ── 安全修复：彻底移除 `cmd /c start "" <app> <args>` ──
@@ -490,11 +580,14 @@ def open_application(app_name: str, args: str = "", wait_window: str = "") -> st
             #   B. 需要系统文件关联解析的（文档 / URI / 快捷方式 / 未解析的裸名字）
             #      → os.startfile(...)，它走 ShellExecute，同样不经过 cmd.exe。
             if _is_launchable_exe(exe_path):
-                _launch_executable(exe_path, _split_app_args(args))
+                proc = _launch_executable(exe_path, _split_app_args(args))
+                launched_pid = int(getattr(proc, "pid", 0) or 0)
+                is_gui_launch = not _is_console_exe(exe_path)
             elif args and _is_url(args) and _is_browser_app(app_name, exe_path):
                 # 浏览器没解析到具体路径、但参数是网址 → 交给默认浏览器打开
                 # （与旧行为 `start "" <浏览器> <网址>` 的最终效果一致）
                 os.startfile(args)
+                is_gui_launch = True
                 logger.info("open_application: 用默认程序打开网址 %s", args)
             else:
                 # 文档 / 文件关联 / URI（如 ms-settings:）/ .lnk / .bat
@@ -506,17 +599,20 @@ def open_application(app_name: str, args: str = "", wait_window: str = "") -> st
                         app_name, args,
                     )
                 os.startfile(exe_path)
+                is_gui_launch = True
                 logger.info("open_application: 用文件关联打开 %s", exe_path)
         else:
             cmd_list = [exe_path]
             if args:
                 cmd_list.append(args)
-            subprocess.Popen(
+            proc = subprocess.Popen(
                 cmd_list,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
+            launched_pid = int(getattr(proc, "pid", 0) or 0)
+            is_gui_launch = True
 
         desc = f"程序「{app_name}」"
         if args:
@@ -524,15 +620,35 @@ def open_application(app_name: str, args: str = "", wait_window: str = "") -> st
         desc += " 已启动"
         logger.info("open_application: %s -> %s", app_name, exe_path)
 
-        # 等待窗口就绪（GUI 程序渲染需要时间）
-        if wait_title:
+        # ── 窗口识别：GUI 程序主动等窗口，并把 hwnd / 标题一并返回 ──
+        # 这是让桌面自动化「立竿见影」的关键：过去启动后不返回句柄，模型只能
+        # 截图 → 视觉模型找窗口 → 再找按钮，每步 1~5 秒。现在直接把 hwnd 交给
+        # 模型，后续可全部走 uia_*（毫秒级的控件树定位），不再需要「看」。
+        if _IS_WINDOWS and (wait_title or is_gui_launch):
+            timeout = 12.0 if (wait_title or launched_pid) else 4.0
+            hwnd, title = _detect_launch_window(
+                launched_pid, before_windows, wait_title, timeout=timeout
+            )
+            if hwnd:
+                time.sleep(0.3)  # 给窗口一点渲染时间
+                desc += f"，窗口「{title}」已就绪（hwnd={hwnd}）"
+                desc += (
+                    "\n后续对该窗口的操作请优先用 UI Automation 工具（毫秒级、无需截图）："
+                    f"uia_dump_tree(hwnd={hwnd}) 查看控件、"
+                    f"uia_click_element(..., hwnd={hwnd}) 精确点击、"
+                    f"uia_set_text(..., hwnd={hwnd}) 精确输入；"
+                    "只有在该窗口找不到对应控件（自绘界面）时，才退回 click_element 视觉兜底。"
+                )
+            elif wait_title:
+                desc += f"（警告：等待窗口「{wait_title}」超时，可能未就绪）"
+                logger.warning("open_application: 等待窗口「%s」超时", wait_title)
+        elif wait_title:
+            # 非 Windows（或未进入上面的分支）时保留原有的标题等待行为
             wait_ok = _wait_for_window(wait_title, timeout=12.0, poll_interval=0.3)
             if wait_ok:
-                # 窗口已出现，再给 0.5s 完成渲染
                 time.sleep(0.5)
                 desc += f"，窗口「{wait_title}」已就绪"
             else:
-                # 窗口未出现也算启动成功，只是提示一下
                 desc += f"（警告：等待窗口「{wait_title}」超时，可能未就绪）"
                 logger.warning(
                     "open_application: 等待窗口「%s」超时（12s）", wait_title
@@ -636,7 +752,7 @@ def download_file(url: str, save_dir: str = "", filename: str = "") -> str:
     # 下载
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) KejiAgent/1.0"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) HuanzhenAgent/1.0"
         }
         resp = requests.get(url, headers=headers, stream=True, timeout=30, allow_redirects=True)
         resp.raise_for_status()

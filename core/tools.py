@@ -15,7 +15,7 @@ from core.logger import setup_logger
 # CLI 调度器路径
 _CLI_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cli.py"))
 
-logger = setup_logger("keji.tools")
+logger = setup_logger("huanzhen.tools")
 
 # 工具注册表
 _tool_registry: dict[str, dict] = {}
@@ -321,7 +321,7 @@ def read_file(filename: str = "", path: str = "", file_path: str = "", filepath:
 )
 def web_search(query: str, max_results: int = 3) -> str:
     url = f"https://html.duckduckgo.com/html/?q={query}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) KejiAgent/1.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) HuanzhenAgent/1.0"}
     try:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
@@ -369,4 +369,6 @@ from core import filetools_organize  # noqa: F401
 from core import db_tools  # noqa: F401
 from core import desktop_tools  # noqa: F401
 from core import gui_tools  # noqa: F401 - 触发 @register_tool 装饰器，让语音模式也能用视觉 GUI 工具
+from core import uia_tools  # noqa: F401 - UI Automation 精确定位（桌面自动化第一级）
+from core import office_com_tools  # noqa: F401 - Office/WPS COM 自动化（桌面自动化第零级）
 
