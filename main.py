@@ -404,19 +404,59 @@ async def health():
     return {"status": "healthy", "engine": "nanobot"}
 
 
-if __name__ == "__main__":
-    import uvicorn
+def _prepare_console() -> None:
+    """让服务在「无控制台」启动时也能正常运行（一键启动脚本的关键）。
+
+    问题背景：用 pythonw.exe 或后台方式启动时，``sys.stdout`` / ``sys.stderr``
+    可能是 ``None``。此时任何 ``print()`` 或日志写入都会抛异常，服务会在启动
+    瞬间静默退出——这正是「双击启动脚本一闪而过、服务没起来」的典型原因。
+
+    这里对缺失的标准流做兜底：接不到就用 ``logs/`` 下的文件，再不行就丢弃，
+    保证任何启动方式（双击 / 后台 / 计划任务）都能稳定跑起来。
+    """
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     try:
-        print("🚀 幻帧 AI 助手启动中...")
-        print("🌐 访问地址: http://127.0.0.1:8000 （局域网请用本机 IP）")
-    except UnicodeEncodeError:
-        print("幻帧 AI 助手启动中...")
-        print("访问地址: http://127.0.0.1:8000")
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        os.makedirs(log_dir, exist_ok=True)
+    except Exception:
+        log_dir = ""
+
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            target = None
+            if log_dir:
+                try:
+                    target = open(
+                        os.path.join(log_dir, f"console.{name}.log"),
+                        "a", encoding="utf-8", errors="replace",
+                    )
+                except Exception:
+                    target = None
+            if target is None:
+                try:
+                    target = open(os.devnull, "w", encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+            setattr(sys, name, target)
+            continue
+        # 有标准流：统一 UTF-8，避免中文日志在 GBK 控制台报 UnicodeEncodeError
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    _prepare_console()
+
+    import uvicorn
+
     host = os.environ.get("HUANZHEN_HOST", "0.0.0.0")
     port = int(os.environ.get("HUANZHEN_PORT", "8000"))
     try:
-        print(f"🌐 本机: http://127.0.0.1:{port}  局域网: http://<本机IP>:{port}")
-    except UnicodeEncodeError:
-        print(f"本机: http://127.0.0.1:{port}  局域网: http://<本机IP>:{port}")
+        print("幻帧 AI 智能秘书 启动中...")
+        print(f"本机访问:   http://127.0.0.1:{port}")
+        print(f"局域网访问: http://<本机IP>:{port}")
+    except Exception:
+        pass
     uvicorn.run(app, host=host, port=port, log_level="info")
