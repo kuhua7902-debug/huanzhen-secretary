@@ -1,4 +1,4 @@
-# 幻帧智能秘书 — 桌面快捷方式安装脚本
+﻿# 幻帧智能秘书 — 桌面快捷方式安装脚本
 # 右键点击此文件，选择「使用 PowerShell 运行」
 
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path

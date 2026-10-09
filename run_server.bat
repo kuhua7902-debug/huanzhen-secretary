@@ -36,7 +36,17 @@ venv\Scripts\python.exe main.py
 set "RC=%errorlevel%"
 
 echo.
-echo 服务已退出（退出码 %RC%）。
+if not "%RC%"=="0" (
+    echo ============================================================
+    echo  服务异常退出（退出码 %RC%）。
+    echo.
+    echo  建议先做一次环境自检定位问题：双击  诊断.bat
+    echo  也可以直接查看日志：logs\agent.log
+    echo ============================================================
+) else (
+    echo 服务已正常退出。
+)
+echo.
 pause
 endlocal
 exit /b %RC%

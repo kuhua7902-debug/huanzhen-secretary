@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -23,6 +24,9 @@ from core.security.context import clear_request_context, set_request_context
 from core.security.users import bootstrap_admin_if_needed
 from core.security.chat_session import resolve_chat_ids
 from core.wechat.work_bridge import router as work_router
+
+# 进程启动时刻，用于 /health 计算运行时长
+_START_TIME = time.time()
 
 async def get_adapter():
     """全系统共享同一个 HuanzhenAdapter 实例（委托给 nanobot.adapter 模块的单例）"""
@@ -401,7 +405,19 @@ async def chat_mode(session_id: str = ""):
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "engine": "nanobot"}
+    """健康检查。
+
+    供启动脚本轮询就绪、以及外部监控使用。除状态外附带进程与运行时长信息——
+    这些是排查「服务是不是活着、跑了多久、是不是刚重启」时最先要看的东西，
+    且不触发任何初始化，成本极低。
+    """
+    return {
+        "status": "healthy",
+        "engine": "nanobot",
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "pid": os.getpid(),
+        "uptime_sec": int(time.time() - _START_TIME),
+    }
 
 
 def _prepare_console() -> None:

@@ -26,6 +26,19 @@
 - **修复批处理块内未转义右括号。** `if (...)` 块里写 `echo 1) xxx` 会提前闭合代码块，
   把后续文本当命令执行；已改用 `1.` 形式，并新增契约测试防止复发
   （`tests/test_scripts_integrity.py` 校验 CRLF 与括号块、doctor 纯函数）。
+- **新增一键停止：`停止服务.bat` + `scripts/stop_server.ps1`。** 服务以无窗口方式后台运行时，
+  过去只能去任务管理器里找并手动结束 python 进程。现在按「谁在监听幻帧端口」精确定位，
+  且**只结束 python 系进程**（避免误杀占用同端口的其它程序），并给出明确结果。
+- **修复 PowerShell 脚本编码（含两处历史遗留）。** Windows PowerShell 5.1 默认按 ANSI(GBK)
+  读取 `.ps1`，无 BOM 的 UTF-8 中文会乱码并撑破引号导致语法错误（实测 `stop_server.ps1`
+  报 `Missing closing '}'`）。现所有含非 ASCII 的 `.ps1` 统一为 **UTF-8 with BOM**
+  （含此前就已埋雷的 `install_shortcut.ps1`、`set_github_about.ps1`、`package_offline.ps1`），
+  并加契约测试锁定该约定。
+- **日志轮转。** `core/logger.py` 改用 `RotatingFileHandler`（单文件 10MB × 保留 5 份）。
+  此前长期运行（常驻数月）会让 `agent.log` 无限增长，最终拖慢启动、占满磁盘。
+- **`/health` 增加运维信息。** 追加 `python` / `pid` / `uptime_sec`，方便判断「服务是不是活着、
+  是不是刚重启」；不触发任何初始化，成本极低，可安全用于监控与启动脚本轮询。
+- **`run_server.bat` 异常退出时引导自检**：退出码非 0 时提示运行 `诊断.bat` 与查看 `logs\agent.log`。
 
 ### 新增
 

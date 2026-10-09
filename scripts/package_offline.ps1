@@ -1,4 +1,4 @@
-# Build offline install bundle on THIS machine (run once before copying to other PCs)
+﻿# Build offline install bundle on THIS machine (run once before copying to other PCs)
 # Output: offline_packages/pip_wheels  (+ optional portable_bundle/venv, node_modules)
 param(
     [switch]$IncludeVenv,

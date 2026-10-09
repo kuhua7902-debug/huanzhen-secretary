@@ -44,8 +44,25 @@ def setup_logger(
     logger.addHandler(console_handler)
 
     if log_file:
-        os.makedirs(os.path.dirname(log_file), exist_ok=True)
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        from logging.handlers import RotatingFileHandler
+
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+
+        # 轮转：单个文件上限 10MB、保留 5 份。
+        # 长期运行的部署（服务常驻数月）如果不轮转，agent.log 会无限增长，
+        # 最终拖慢启动、占满磁盘——这是「跑久了就出问题」的常见根因。
+        try:
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+                encoding="utf-8",
+            )
+        except Exception:
+            # 极端情况下（路径不可用等）退回普通 FileHandler，不影响服务启动
+            file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

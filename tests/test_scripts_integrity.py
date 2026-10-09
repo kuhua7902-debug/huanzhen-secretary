@@ -21,6 +21,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 BAT_FILES = sorted(p for p in ROOT.glob("*.bat"))
+PS1_FILES = sorted(ROOT.glob("*.ps1")) + sorted((ROOT / "scripts").glob("*.ps1"))
 
 
 def _load_doctor():
@@ -38,10 +39,25 @@ def _load_doctor():
 
 
 def test_launcher_scripts_exist():
-    """风险：一键启动/部署/诊断入口被误删，用户不知道该运行什么。"""
+    """风险：一键启动/停止/部署/诊断入口被误删，用户不知道该运行什么。"""
     names = {p.name for p in BAT_FILES}
-    for required in ("launch_huanzhen.bat", "run_server.bat", "setup_deploy.bat", "启动幻帧.bat", "诊断.bat"):
-        assert required in names, f"缺少启动脚本：{required}"
+    required = (
+        "launch_huanzhen.bat",   # 一键启动（后台 + 预检）
+        "run_server.bat",        # 控制台启动（排错）
+        "setup_deploy.bat",      # 一键部署
+        "诊断.bat",              # 环境自检
+        "停止服务.bat",          # 一键停止
+        "启动幻帧.bat",          # 中文别名
+        "运行服务.bat",
+    )
+    missing = [name for name in required if name not in names]
+    assert not missing, f"缺少脚本：{missing}"
+
+
+def test_backing_scripts_exist():
+    """风险：bat 只是入口，真正干活的 ps1/py 被删后双击就会报错。"""
+    for rel in ("scripts/doctor.py", "scripts/stop_server.ps1", "scripts/deploy.ps1"):
+        assert (ROOT / rel).is_file(), f"缺少脚本：{rel}"
 
 
 @pytest.mark.parametrize("path", BAT_FILES, ids=lambda p: p.name)
@@ -73,6 +89,23 @@ def test_bat_paren_blocks_have_no_bare_closing_paren(path: Path):
         if re.search(r"(?<!\^)\b\d\)", line):
             offenders.append(f"{path.name}:{lineno}: {line}")
     assert not offenders, "批处理块内的右括号需要转义或改用『1.』形式：\n" + "\n".join(offenders)
+
+
+@pytest.mark.parametrize("path", PS1_FILES, ids=lambda p: p.name)
+def test_ps1_with_non_ascii_has_utf8_bom(path: Path):
+    """风险：Windows PowerShell 5.1 默认按 ANSI(GBK) 读取 .ps1。
+
+    无 BOM 的 UTF-8 中文会被解码成乱码，既显示成乱码，还可能撑破引号导致
+    语法错误（实测 stop_server.ps1 曾因此报 "Missing closing '}'"）。
+    纯 ASCII 脚本无需 BOM，故这里只对有非 ASCII 内容的脚本做要求。
+    """
+    data = path.read_bytes()
+    if all(b < 128 for b in data):
+        return
+    assert data.startswith(b"\xef\xbb\xbf"), (
+        f"{path.name} 含非 ASCII 字符但缺少 UTF-8 BOM"
+        "（PowerShell 5.1 下会乱码/语法报错，请用 UTF-8 with BOM 保存）"
+    )
 
 
 # ─────────────────────────── doctor 纯函数 ───────────────────────────

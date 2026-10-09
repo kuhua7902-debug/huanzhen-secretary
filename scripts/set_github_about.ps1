@@ -1,4 +1,4 @@
-# 设置 GitHub 仓库简介（需先安装 gh 并登录）
+﻿# 设置 GitHub 仓库简介（需先安装 gh 并登录）
 # 用法：在项目根目录 PowerShell 执行：
 #   .\scripts\set_github_about.ps1
 
