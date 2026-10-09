@@ -19,6 +19,7 @@ from core.routes import router as api_router
 from core.routes_auth import router as auth_router
 from core.routes_admin import router as admin_router
 from core.routes_security import router as security_router
+from core.routes_system import router as system_router
 from core.security.auth import APIKeyMiddleware, get_security_settings
 from core.security.context import clear_request_context, set_request_context
 from core.security.users import bootstrap_admin_if_needed
@@ -35,22 +36,10 @@ async def get_adapter():
 
 
 def _load_backup_module():
-    """按路径加载 scripts/backup.py。
+    """加载 scripts/backup.py（统一走 core.script_loader，避免各处重复实现）。"""
+    from core.script_loader import load_script
 
-    scripts/ 不是包，直接 `import backup` 会污染 sys.path 且有重名风险，
-    因此用 importlib 按文件路径加载。加载失败返回 None（备份是可选能力）。
-    """
-    import importlib.util
-
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "backup.py")
-    if not os.path.isfile(path):
-        return None
-    spec = importlib.util.spec_from_file_location("huanzhen_backup", path)
-    if not spec or not spec.loader:
-        return None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_script("backup.py")
 
 
 def _report_config_issues() -> None:
@@ -150,6 +139,7 @@ app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(security_router)
+app.include_router(system_router)
 app.include_router(work_router)
 
 
@@ -473,9 +463,12 @@ async def health():
     这些是排查「服务是不是活着、跑了多久、是不是刚重启」时最先要看的东西，
     且不触发任何初始化，成本极低。
     """
+    from core.version import __version__ as _version
+
     return {
         "status": "healthy",
         "engine": "nanobot",
+        "version": _version,
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "pid": os.getpid(),
         "uptime_sec": int(time.time() - _START_TIME),

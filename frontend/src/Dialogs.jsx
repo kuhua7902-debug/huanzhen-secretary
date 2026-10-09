@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { listSkills, listTools, mcpServers, mcpStatus, modelsBalance } from './api.js'
+import {
+  listSkills, listTools, mcpServers, mcpStatus, modelsBalance,
+  systemBackupNow, systemDiagnostics,
+} from './api.js'
 import { FONT_SCALES, PRESETS, applyAppearance, readImageFile, saveAppearance } from './theme.js'
 
 const LEGACY = '/static/index.html'
@@ -31,6 +34,7 @@ const SETTINGS_SECTIONS = [
   { id: 'tools', name: '工具能力', icon: '⚒' },
   { id: 'skills', name: '技能', icon: '⌘' },
   { id: 'mcp', name: 'MCP 服务', icon: '⚉' },
+  { id: 'system', name: '系统状态', icon: '◈', adminOnly: true },
   { sep: '系统模块（经典控制台）' },
   { id: 'knowledge', name: '知识库', icon: '◇', embed: 'knowledge' },
   { id: 'files', name: '团队文件', icon: '◇', embed: 'files' },
@@ -72,6 +76,7 @@ export function SettingsDialog({ onClose, user, modelList, appearance, setAppear
               {tab === 'tools' && <ToolsPanel />}
               {tab === 'skills' && <SkillsPanel />}
               {tab === 'mcp' && <McpPanel />}
+              {tab === 'system' && <SystemPanel />}
             </div>
           )
         })()}
@@ -470,6 +475,181 @@ function McpPanel() {
         })}
         {servers.length === 0 && <div className="side-empty">未读取到 MCP 配置</div>}
       </div>
+    </>
+  )
+}
+
+/* ─────────────────────── 系统状态 ─────────────────────── */
+
+function fmtUptime(sec) {
+  const s = Number(sec || 0)
+  if (s < 60) return s + ' 秒'
+  if (s < 3600) return Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒'
+  return Math.floor(s / 3600) + ' 小时 ' + Math.floor((s % 3600) / 60) + ' 分'
+}
+
+const CHECK_LABEL = { ok: '通过', warn: '警告', error: '阻断', info: '提示' }
+
+function SystemPanel() {
+  const [data, setData] = useState(null)
+  const [checks, setChecks] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr('')
+    try { setData(await systemDiagnostics(false)) }
+    catch (e) { setErr(e.message || '读取系统状态失败') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function runChecks() {
+    setBusy('checks'); setErr(''); setMsg('')
+    try {
+      const d = await systemDiagnostics(true)
+      setData(d)
+      setChecks(d.checks || [])
+    } catch (e) { setErr(e.message || '环境自检失败') }
+    finally { setBusy('') }
+  }
+
+  async function doBackup() {
+    setBusy('backup'); setErr(''); setMsg('')
+    try {
+      const r = await systemBackupNow()
+      setMsg(`备份完成：${r.name}（${r.size_mb} MB）`)
+      setData((prev) => (prev ? { ...prev, backups: r.backups } : prev))
+    } catch (e) { setErr(e.message || '备份失败') }
+    finally { setBusy('') }
+  }
+
+  if (!data) {
+    return <div className="side-empty">{loading ? '加载中…' : (err || '暂无数据')}</div>
+  }
+
+  const rt = data.runtime || {}
+  const db = data.database || {}
+  const tools = data.tools || {}
+  const disk = data.disk || {}
+  const backups = data.backups || []
+  const lowDisk = typeof disk.free_gb === 'number' && disk.free_gb < 5
+
+  return (
+    <>
+      <div className="sec-head-row">
+        <div>
+          <div className="sec-h">系统状态</div>
+          <p className="sec-p" style={{ marginBottom: 0 }}>
+            运行环境、数据规模与备份管理。命令行入口 <code>诊断.bat</code> / <code>备份.bat</code> 仍然可用——
+            当服务本身起不来时，它是唯一还能用的排查入口。
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="head-btn" onClick={runChecks} disabled={busy !== ''}>
+            {busy === 'checks' ? '自检中…' : '运行环境自检'}
+          </button>
+          <button className="head-btn" onClick={load} disabled={loading}>
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+        </div>
+      </div>
+
+      {err && <div className="err-inline" style={{ marginTop: 10 }}>{err}</div>}
+      {msg && <div className="badge-ok" style={{ marginTop: 10, display: 'inline-flex' }}>{msg}</div>}
+
+      <div className="tile-list" style={{ marginTop: 14 }}>
+        <div className="tile">
+          <div className="t">
+            <span>运行时</span>
+            <span className="badge-ok">v{rt.version}</span>
+            <span style={{ flex: 1 }} />
+            <span className="badge-off">{rt.platform}</span>
+          </div>
+          <div className="d">{rt.app}</div>
+          <div className="tile-metrics">
+            <div className="m"><span className="k">Python</span><span className="v">{rt.python}</span></div>
+            <div className="m"><span className="k">进程号</span><span className="v">{rt.pid}</span></div>
+            <div className="m"><span className="k">已运行</span><span className="v">{fmtUptime(rt.uptime_sec)}</span></div>
+            <div className="m">
+              <span className="k">磁盘剩余</span>
+              <span className={'v' + (lowDisk ? ' dim' : ' ok')}>{disk.free_gb} / {disk.total_gb} GB</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="tile">
+          <div className="t"><span>数据规模</span></div>
+          <div className="d" style={{ fontFamily: 'var(--mono)', fontSize: 11.5, opacity: 0.8 }}>{db.path}</div>
+          <div className="tile-metrics">
+            <div className="m"><span className="k">用户</span><span className="v">{db.users ?? '—'}</span></div>
+            <div className="m"><span className="k">对话</span><span className="v">{db.conversations ?? '—'}</span></div>
+            <div className="m"><span className="k">消息</span><span className="v">{db.messages ?? '—'}</span></div>
+            <div className="m"><span className="k">审计事件</span><span className="v">{db.audit_events ?? '—'}</span></div>
+            <div className="m"><span className="k">库大小</span><span className="v">{db.size_mb} MB</span></div>
+            <div className="m">
+              <span className="k">工具</span>
+              <span className="v">
+                内置 {tools.builtin ?? '—'}
+                {tools.mcp != null && <> · MCP {tools.mcp}</>}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="sec-head-row" style={{ marginTop: 20 }}>
+        <div>
+          <div className="sec-h">数据备份</div>
+          <p className="sec-p" style={{ marginBottom: 0 }}>
+            打包数据库 / 配置 / 安全文件为 zip，服务启动时每天自动备份一次，默认保留最近 7 份。
+            <b>不含 .env</b>（含 API 密钥），请另行单独保管。
+          </p>
+        </div>
+        <button className="head-btn primary" onClick={doBackup} disabled={busy !== ''}>
+          {busy === 'backup' ? '备份中…' : '立即备份'}
+        </button>
+      </div>
+
+      <div className="tile-list" style={{ marginTop: 12 }}>
+        {backups.length === 0 && <div className="side-empty">暂无备份</div>}
+        {backups.map((b) => (
+          <div className="tile" key={b.name}>
+            <div className="t">
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{b.name}</span>
+              <span style={{ flex: 1 }} />
+              <span className="badge-off">{b.size_mb} MB</span>
+            </div>
+            <div className="d">{b.created_at}</div>
+          </div>
+        ))}
+      </div>
+
+      {checks && (
+        <>
+          <div className="sec-h" style={{ marginTop: 20 }}>环境自检结果</div>
+          <div className="tile-list" style={{ marginTop: 10 }}>
+            {checks.length === 0 && <div className="side-empty">没有需要报告的问题</div>}
+            {checks.map((c, i) => (
+              <div className="tile" key={i}>
+                <div className="t">
+                  <span className={c.level === 'ok' ? 'badge-ok' : 'badge-off'}>
+                    {CHECK_LABEL[c.level] || c.level}
+                  </span>
+                  <span>{c.title}</span>
+                </div>
+                {c.detail && <div className="d" style={{ fontFamily: 'var(--mono)', fontSize: 11.5 }}>{c.detail}</div>}
+                {c.fix && c.level !== 'ok' && (
+                  <div className="d" style={{ color: 'var(--cyan)' }}>→ {c.fix}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   )
 }

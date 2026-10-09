@@ -61,6 +61,12 @@ export const listTools = () => api('/tools')
 /** 各模型余额 + 本地累计用量（refresh=1 强制跳过缓存） */
 export const modelsBalance = (refresh) => api('/api/models/balance' + (refresh ? '?refresh=1' : ''))
 export const systemStatus = () => api('/api/status')
+
+/* 系统状态与备份（管理页「系统状态」） */
+export const systemDiagnostics = (deep) =>
+  api('/api/system/diagnostics' + (deep ? '?deep=1' : ''))
+export const systemBackups = () => api('/api/system/backups')
+export const systemBackupNow = () => api('/api/system/backup', { method: 'POST' })
 /** 登录前首页用的公开概览（仅计数） */
 export const publicOverview = () => api('/api/public/overview')
 
